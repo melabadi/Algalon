@@ -1048,8 +1048,8 @@ def command_smoke_installation(arguments: argparse.Namespace) -> int:
         "web/package-lock.json",
         "web/src/App.tsx",
         "shared/benchmark.ts",
-        "docs/images/algalon-overall.png",
-        "docs/images/algalon-methodology.png",
+        "docs/images/algalon-portfolio-desktop.png",
+        "docs/images/algalon-methodology-overview.png",
     )
     for relative_path in required_paths:
         if not (root / relative_path).exists():
