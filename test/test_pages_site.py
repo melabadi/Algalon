@@ -24,6 +24,8 @@ class SiteParser(HTMLParser):
         self.ids: list[str] = []
         self.local_links: list[str] = []
         self.hash_links: list[str] = []
+        self.footer_links: list[str] = []
+        self.in_footer = False
         self.image_alts: list[str | None] = []
         self.h1_count = 0
         self.main_count = 0
@@ -32,9 +34,13 @@ class SiteParser(HTMLParser):
 
     def handle_starttag(self, tag: str, attributes: list[tuple[str, str | None]]) -> None:
         values = dict(attributes)
+        if tag == "footer":
+            self.in_footer = True
         if identifier := values.get("id"):
             self.ids.append(identifier)
         if tag == "a" and (href := values.get("href")):
+            if self.in_footer:
+                self.footer_links.append(href)
             if href.startswith("#"):
                 self.hash_links.append(href)
             elif not href.startswith(("https://", "http://", "mailto:")):
@@ -59,6 +65,8 @@ class SiteParser(HTMLParser):
             self.in_code_block = True
 
     def handle_endtag(self, tag: str) -> None:
+        if tag == "footer":
+            self.in_footer = False
         if tag == "pre":
             self.in_code_block = False
 
@@ -107,6 +115,18 @@ class PagesSiteTests(unittest.TestCase):
         })
         self.assertIn("data/value-model.example.json", self.script)
         self.assertTrue((SITE / ".nojekyll").is_file())
+
+    def test_built_pages_include_the_public_contact_in_both_footers(self) -> None:
+        contact = "mailto:" + "@".join(("mehdilabadi", "microsoft.com"))
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            output = Path(temporary_directory) / "site"
+            build(output)
+            for name in ("index.html", "methodology.html"):
+                with self.subTest(page=name):
+                    parser = SiteParser()
+                    parser.feed((output / name).read_text(encoding="utf-8"))
+                    parser.close()
+                    self.assertEqual(parser.footer_links.count(contact), 1)
 
     def test_explains_claim_boundary_and_current_formula(self) -> None:
         for phrase in (
