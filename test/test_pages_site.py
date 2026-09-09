@@ -9,6 +9,7 @@ import struct
 import tempfile
 import unittest
 from unittest.mock import patch
+from xml.etree import ElementTree
 
 from scripts.build_pages_site import build
 
@@ -96,11 +97,12 @@ class PagesSiteTests(unittest.TestCase):
             "assets/algalon-portfolio-desktop.png",
             "assets/algalon-portfolio-mobile.png",
             "assets/algalon-insights.png",
+            "architecture.svg",
             "methodology.html",
         }
         self.assertEqual(set(self.parser.local_links), expected)
         self.assertEqual(set(self.methodology_parser.local_links), {
-            "./", "./#install", "./#features", "methodology.html", "styles.css", "app.js",
+            "./", "./#install", "./#features", "./#architecture", "methodology.html", "styles.css", "app.js",
             "assets/favicon.ico", "assets/algalon-methodology-overview.png",
         })
         self.assertIn("data/value-model.example.json", self.script)
@@ -175,6 +177,31 @@ class PagesSiteTests(unittest.TestCase):
         self.assertNotIn('<script src="app.js"', self.html)
         self.assertTrue((SITE / "methodology.html").is_file())
 
+    def test_home_explains_architecture_with_a_local_accessible_diagram(self) -> None:
+        self.assertIn('id="architecture"', self.html)
+        self.assertIn('href="#architecture"', self.html)
+        self.assertLess(self.html.index('id="install"'), self.html.index('id="architecture"'))
+        self.assertIn("React reads FastAPI only", self.html)
+        self.assertIn("read-only", self.html)
+        self.assertIn("127.0.0.1", self.html)
+        diagram = ElementTree.parse(SITE / "architecture.svg").getroot()
+        namespace = {"svg": "http://www.w3.org/2000/svg"}
+        self.assertEqual(diagram.get("role"), "img")
+        self.assertTrue(diagram.find("svg:title", namespace).text)
+        self.assertTrue(diagram.find("svg:desc", namespace).text)
+        edges = {
+            (node.get("data-from"), node.get("data-to"))
+            for node in diagram.iter()
+            if node.get("data-from")
+        }
+        self.assertEqual(edges, {
+            ("copilot", "collector"), ("collector", "api"), ("api", "dashboard"),
+            ("api", "worker"), ("worker", "api"), ("collector", "metrics"),
+            ("worker", "metrics"), ("metrics", "grafana"),
+            ("turn-logs", "worker"), ("turn-logs", "api"),
+        })
+        self.assertIsNone(diagram.find(".//svg:script", namespace))
+
     def test_product_screenshots_are_high_resolution_without_private_metadata(self) -> None:
         for name in ("algalon-portfolio-desktop", "algalon-portfolio-mobile", "algalon-insights", "algalon-methodology-overview"):
             with self.subTest(image=name):
@@ -232,6 +259,7 @@ class PagesSiteTests(unittest.TestCase):
             expected = {
                 ".nojekyll",
                 "app.js",
+                "architecture.svg",
                 "assets/favicon.ico",
                 "assets/algalon-methodology-overview.png",
                 "assets/algalon-portfolio-desktop.png",

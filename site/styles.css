@@ -92,6 +92,21 @@ p { line-height: 1.6; }
 .quick-start .install-platform pre { background: var(--page); border-color: var(--derived); color: var(--text); }
 .setup-links { display: flex; flex-wrap: wrap; gap: 12px 26px; margin-top: 22px; font-size: 12px; }
 .setup-links span { margin-left: auto; color: var(--muted); }
+.architecture-overview { border-bottom: 1px solid var(--line-soft); }
+.architecture-figure { margin: 0; }
+.architecture-diagram { overflow-x: auto; border: 1px solid var(--line); border-radius: 6px; background: var(--page); }
+.architecture-diagram:focus-visible { outline: 2px solid var(--observed); outline-offset: 3px; }
+.architecture-diagram img { width: 100%; min-width: 1056px; height: auto; }
+.architecture-figure figcaption { display: flex; flex-wrap: wrap; justify-content: space-between; gap: 12px 24px; margin-top: 14px; color: var(--muted); font-size: 12px; }
+.architecture-overview a { color: var(--observed); text-decoration: underline; text-underline-offset: 3px; }
+.architecture-steps { margin: 32px 0 0; padding: 0; list-style: none; display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 0 36px; }
+.architecture-steps li { display: flex; gap: 16px; min-width: 0; padding: 24px 0; border-top: 1px solid var(--line); }
+.architecture-steps li > span { color: var(--derived); font-family: "Cascadia Code", Consolas, monospace; font-size: 12px; padding-top: 3px; }
+.architecture-steps p, .architecture-notes p { margin-bottom: 0; color: var(--muted); font-size: 14px; }
+.architecture-steps code, .architecture-notes code { overflow-wrap: anywhere; }
+.architecture-notes { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 24px 36px; padding-top: 24px; border-top: 1px solid var(--line); }
+.architecture-notes strong { color: var(--text); }
+.architecture-reference { margin: 22px 0 0; font-size: 12px; color: var(--muted); }
 .app-preview { margin: 0; }
 .app-preview + .app-preview { margin-top: 46px; }
 .insights-preview { margin-top: 42px; }
@@ -290,6 +305,7 @@ footer { border-top: 1px solid var(--line); background: #090b0e; }
   .setup-steps li, .setup-steps li + li { border-left: 0; padding: 20px 0; }
   .setup-steps li + li { border-top: 1px solid var(--setup-line); }
   .setup-links span { margin-left: 0; }
+  .architecture-steps, .architecture-notes { grid-template-columns: 1fr; }
   .preview-heading h3 { font-size: 19px; }
   .method-summary .section-inner { flex-direction: column; align-items: start; gap: 26px; }
   .feature-grid { grid-template-columns: 1fr; }

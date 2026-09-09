@@ -1,0 +1,93 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1320" height="620" viewBox="0 0 1320 620" role="img" aria-labelledby="diagram-title diagram-description">
+  <title id="diagram-title">Algalon local architecture</title>
+  <desc id="diagram-description">Copilot sends OTLP to the OpenTelemetry Collector. Scrubbed traces are committed by FastAPI to SQLite. The TypeScript worker reads cursor pages through FastAPI and stores modeled session results in local files for API indexing. React reads only FastAPI. The Collector and worker publish aggregate metrics to VictoriaMetrics, which optional Grafana reads. Matched VS Code logs are optional read-only inputs to the worker and API. Host services bind only to loopback.</desc>
+  <defs>
+    <marker id="arrow" markerWidth="8" markerHeight="8" refX="7" refY="4" orient="auto" markerUnits="strokeWidth"><path d="M0 0L8 4L0 8Z" fill="#5bc0eb"/></marker>
+    <marker id="optional-arrow" markerWidth="8" markerHeight="8" refX="7" refY="4" orient="auto" markerUnits="strokeWidth"><path d="M0 0L8 4L0 8Z" fill="#8fd694"/></marker>
+  </defs>
+  <rect width="1320" height="620" fill="#0d1014"/>
+  <g font-family="Aptos, IBM Plex Sans, sans-serif" fill="#f1f4f7">
+    <text x="40" y="44" font-size="19" font-weight="700">Your workstation</text>
+    <text x="40" y="70" font-size="14" fill="#9ba7b4">One installation for every local repository. Host ports bind to 127.0.0.1.</text>
+
+    <g fill="none" stroke="#5bc0eb" stroke-width="2" marker-end="url(#arrow)">
+      <path data-from="copilot" data-to="collector" d="M270 166H348"/>
+      <path data-from="collector" data-to="api" d="M610 166H668"/>
+      <path data-from="api" data-to="dashboard" d="M940 166H1008"/>
+      <path data-from="api" data-to="worker" d="M736 222V368"/>
+      <path data-from="worker" data-to="api" d="M874 380V234"/>
+      <path data-from="collector" data-to="metrics" d="M484 222V368"/>
+      <path data-from="worker" data-to="metrics" d="M680 436H622"/>
+      <path data-from="metrics" data-to="grafana" d="M360 436H282"/>
+    </g>
+    <g fill="none" stroke="#8fd694" stroke-width="2" stroke-dasharray="5 5" marker-end="url(#optional-arrow)">
+      <path data-from="turn-logs" data-to="worker" d="M1020 436H952"/>
+      <path data-from="turn-logs" data-to="api" d="M1150 380V286H968V196H950"/>
+    </g>
+    <g font-size="12" fill="#9ba7b4" text-anchor="middle">
+      <text x="310" y="147">OTLP</text>
+      <text x="645" y="133">Scrubbed<tspan x="645" dy="16">spans</tspan></text>
+      <text x="978" y="147">Local API</text>
+      <text x="322" y="417">Query</text>
+      <text x="650" y="405">Modeled<tspan x="650" dy="16">metrics</tspan></text>
+      <text x="984" y="417" fill="#8fd694">Read-only</text>
+    </g>
+    <g font-size="13" fill="#9ba7b4">
+      <text x="504" y="298">OTel metrics</text>
+      <text x="751" y="322">Cursor pages</text>
+      <text x="890" y="252">Results via<tspan x="890" dy="17">local files</tspan></text>
+      <text x="1050" y="272" fill="#8fd694">Read-only</text>
+    </g>
+
+    <g id="copilot">
+      <rect x="40" y="110" width="230" height="112" rx="6" fill="#13171c" stroke="#2b333c"/>
+      <text x="60" y="138" font-size="12" fill="#5bc0eb">SOURCE</text>
+      <text x="60" y="168" font-size="20" font-weight="700">VS Code + Copilot</text>
+      <text x="60" y="195" font-size="14" fill="#9ba7b4">Any local repository</text>
+    </g>
+    <g id="collector">
+      <rect x="360" y="110" width="250" height="112" rx="6" fill="#13171c" stroke="#5bc0eb"/>
+      <text x="380" y="138" font-size="12" fill="#5bc0eb">PRIVACY BOUNDARY</text>
+      <text x="380" y="168" font-size="18" font-weight="700">OpenTelemetry Collector</text>
+      <text x="380" y="195" font-size="14" fill="#9ba7b4">OTLP 4317 / 4318</text>
+    </g>
+    <g id="api">
+      <rect x="680" y="110" width="260" height="112" rx="6" fill="#17241e" stroke="#8fd694"/>
+      <text x="700" y="138" font-size="12" fill="#8fd694">LOCAL EVIDENCE</text>
+      <text x="700" y="168" font-size="20" font-weight="700">FastAPI + SQLite</text>
+      <text x="700" y="195" font-size="14" fill="#9ba7b4">Durable inbox and read model</text>
+    </g>
+    <g id="dashboard">
+      <rect x="1020" y="110" width="260" height="112" rx="6" fill="#13171c" stroke="#2b333c"/>
+      <text x="1040" y="138" font-size="12" fill="#5bc0eb">APPLICATION</text>
+      <text x="1040" y="168" font-size="20" font-weight="700">React dashboard</text>
+      <text x="1040" y="195" font-size="14" fill="#9ba7b4">127.0.0.1:3000</text>
+    </g>
+    <g id="grafana">
+      <rect x="40" y="380" width="230" height="112" rx="6" fill="#13171c" stroke="#2b333c" stroke-dasharray="5 5"/>
+      <text x="60" y="408" font-size="12" fill="#9ba7b4">OPTIONAL VIEW</text>
+      <text x="60" y="438" font-size="20" font-weight="700">Grafana</text>
+      <text x="60" y="465" font-size="14" fill="#9ba7b4">127.0.0.1:3001</text>
+    </g>
+    <g id="metrics">
+      <rect x="360" y="380" width="250" height="112" rx="6" fill="#13171c" stroke="#2b333c"/>
+      <text x="380" y="408" font-size="12" fill="#5bc0eb">AGGREGATE METRICS</text>
+      <text x="380" y="438" font-size="20" font-weight="700">VictoriaMetrics</text>
+      <text x="380" y="465" font-size="14" fill="#9ba7b4">127.0.0.1:8428</text>
+    </g>
+    <g id="worker">
+      <rect x="680" y="380" width="260" height="112" rx="6" fill="#211e15" stroke="#f4c95d"/>
+      <text x="700" y="408" font-size="12" fill="#f4c95d">CALCULATION</text>
+      <text x="700" y="438" font-size="20" font-weight="700">TypeScript worker</text>
+      <text x="700" y="465" font-size="14" fill="#9ba7b4">Phases, scenarios, and value</text>
+    </g>
+    <g id="turn-logs">
+      <rect x="1020" y="380" width="260" height="112" rx="6" fill="#13171c" stroke="#8fd694" stroke-dasharray="5 5"/>
+      <text x="1040" y="408" font-size="12" fill="#8fd694">OPTIONAL LOCAL INPUT</text>
+      <text x="1040" y="438" font-size="19" font-weight="700">Matched VS Code logs</text>
+      <text x="1040" y="465" font-size="14" fill="#9ba7b4">Exact conversation match only</text>
+    </g>
+    <text x="40" y="552" font-size="16" font-weight="700">Evidence stays local.</text>
+    <text x="40" y="580" font-size="14" fill="#9ba7b4">Prompt text never becomes a metric label. The central worker does not mount repository source files.</text>
+  </g>
+</svg>
