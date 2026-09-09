@@ -13,11 +13,11 @@ All raw telemetry stays on the developer workstation. Licensed under [Apache-2.0
 
 ## Application views
 
-These screenshots use synthetic session evidence and a synthetic calibration set. They contain no prompt text, repository identity, or workstation telemetry.
+These screenshots use the app's synthetic demo fixtures. They contain no real prompt text, repository identity, or workstation telemetry.
 
 ### Portfolio sensitivity
 
-![Algalon overall portfolio with the Custom scenario selected](docs/images/algalon-overall.png)
+![Algalon overall portfolio with synthetic sessions and the Base scenario selected](docs/images/algalon-portfolio-desktop.png)
 
 The overall view keeps observed evidence fixed while comparing modeled time, value, and return. Concurrent session intervals are unioned before developer time is priced, while every session's observed AI usage remains included. **Pessimistic**, **Base**, and **Optimistic** use the current worker-published branches. **Custom** applies the browser-local calibration set selected in Methodology without changing those worker results.
 
@@ -25,7 +25,7 @@ The model-cohort table groups the currently displayed sessions by their exact re
 
 ### Calibration methodology
 
-![Algalon Methodology calibration workspace](docs/images/algalon-methodology.png)
+![Algalon Methodology overview of the four calculation steps](docs/images/algalon-methodology-overview.png)
 
 The Methodology view exposes every modeled input, preserves a snapshot of the three worker branches, records which saved-set branch the **Custom** button uses, and shows whether each base input has direct evidence, contextual evidence, or still needs local calibration.
 

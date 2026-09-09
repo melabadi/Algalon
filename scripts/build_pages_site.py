@@ -16,7 +16,7 @@ def build(output: Path) -> None:
     data = output / "data"
     assets.mkdir()
     data.mkdir()
-    for name in ("algalon-overall.png", "algalon-methodology.png"):
+    for name in ("algalon-portfolio-desktop.png", "algalon-portfolio-mobile.png", "algalon-insights.png", "algalon-methodology-overview.png"):
         shutil.copy2(ROOT / "docs" / "images" / name, assets / name)
     shutil.copy2(ROOT / "web" / "public" / "favicon.ico", assets / "favicon.ico")
     shutil.copy2(ROOT / "config" / "value-model.example.json", data / "value-model.example.json")

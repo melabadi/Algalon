@@ -3,6 +3,7 @@ from __future__ import annotations
 from html.parser import HTMLParser
 import json
 from pathlib import Path
+import struct
 import tempfile
 import unittest
 
@@ -41,6 +42,8 @@ class SiteParser(HTMLParser):
             if source := values.get("src"):
                 if not source.startswith(("https://", "http://")):
                     self.local_links.append(source)
+        if tag == "source" and (source := values.get("srcset")):
+            self.local_links.extend(candidate.strip().split()[0] for candidate in source.split(","))
         if tag == "h1":
             self.h1_count += 1
         if tag == "main":
@@ -53,28 +56,37 @@ class PagesSiteTests(unittest.TestCase):
         cls.html = (SITE / "index.html").read_text(encoding="utf-8")
         cls.script = (SITE / "app.js").read_text(encoding="utf-8")
         cls.styles = (SITE / "styles.css").read_text(encoding="utf-8")
+        cls.methodology = (SITE / "methodology.html").read_text(encoding="utf-8")
         cls.parser = SiteParser()
         cls.parser.feed(cls.html)
         cls.parser.close()
+        cls.methodology_parser = SiteParser()
+        cls.methodology_parser.feed(cls.methodology)
+        cls.methodology_parser.close()
 
     def test_has_accessible_structure_and_valid_anchor_targets(self) -> None:
-        self.assertEqual(self.parser.main_count, 1)
-        self.assertEqual(self.parser.h1_count, 1)
-        self.assertEqual(len(self.parser.ids), len(set(self.parser.ids)))
-        self.assertTrue(all(alt for alt in self.parser.image_alts))
-        for link in self.parser.hash_links:
-            self.assertIn(link.removeprefix("#"), self.parser.ids)
+        for parser in (self.parser, self.methodology_parser):
+            self.assertEqual(parser.main_count, 1)
+            self.assertEqual(parser.h1_count, 1)
+            self.assertEqual(len(parser.ids), len(set(parser.ids)))
+            self.assertTrue(all(alt for alt in parser.image_alts))
+            for link in parser.hash_links:
+                self.assertIn(link.removeprefix("#"), parser.ids)
 
     def test_references_only_staged_local_assets(self) -> None:
         expected = {
             "styles.css",
-            "app.js",
             "assets/favicon.ico",
-            "assets/algalon-overall.png",
-            "assets/algalon-methodology.png",
+            "assets/algalon-portfolio-desktop.png",
+            "assets/algalon-portfolio-mobile.png",
+            "assets/algalon-insights.png",
+            "methodology.html",
         }
         self.assertEqual(set(self.parser.local_links), expected)
-        self.assertIn('url("assets/algalon-overall.png")', self.styles)
+        self.assertEqual(set(self.methodology_parser.local_links), {
+            "./", "./#install", "./#features", "methodology.html", "styles.css", "app.js",
+            "assets/favicon.ico", "assets/algalon-methodology-overview.png",
+        })
         self.assertIn("data/value-model.example.json", self.script)
         self.assertTrue((SITE / ".nojekyll").is_file())
 
@@ -88,7 +100,7 @@ class PagesSiteTests(unittest.TestCase):
             "Research-anchored shipped defaults",
             "One loopback stack for every local repository",
         ):
-            self.assertIn(phrase, self.html)
+            self.assertIn(phrase, self.methodology)
         self.assertIn("prefers-reduced-motion", self.styles)
 
     def test_uses_the_checked_in_evidence_register(self) -> None:
@@ -129,6 +141,28 @@ class PagesSiteTests(unittest.TestCase):
         ):
             self.assertIn(required, self.html)
 
+    def test_home_prioritizes_setup_and_links_to_detailed_methodology(self) -> None:
+        self.assertLess(self.html.index('id="install"'), self.html.index('id="features"'))
+        self.assertIn('href="methodology.html"', self.html)
+        self.assertNotIn('id="break-even-form"', self.html)
+        self.assertNotIn('class="scenario-table"', self.html)
+        self.assertNotIn('<script src="app.js"', self.html)
+        self.assertTrue((SITE / "methodology.html").is_file())
+
+    def test_product_screenshots_are_high_resolution_without_private_metadata(self) -> None:
+        for name in ("algalon-portfolio-desktop", "algalon-portfolio-mobile", "algalon-insights", "algalon-methodology-overview"):
+            with self.subTest(image=name):
+                content = (ROOT / "docs" / "images" / f"{name}.png").read_bytes()
+                self.assertEqual(content[:8], b"\x89PNG\r\n\x1a\n")
+                width, height = struct.unpack(">II", content[16:24])
+                self.assertGreaterEqual(width, 750 if name.endswith("mobile") else 2_000)
+                self.assertGreaterEqual(height, 600)
+                offset = 8
+                while offset < len(content):
+                    length = struct.unpack(">I", content[offset:offset + 4])[0]
+                    self.assertNotIn(content[offset + 4:offset + 8], (b"tEXt", b"zTXt", b"iTXt", b"eXIf"))
+                    offset += length + 12
+
     def test_pages_workflow_stages_only_required_runtime_inputs(self) -> None:
         workflow = (ROOT / ".github" / "workflows" / "pages.yml").read_text(encoding="utf-8")
         for required in (
@@ -147,10 +181,13 @@ class PagesSiteTests(unittest.TestCase):
                 ".nojekyll",
                 "app.js",
                 "assets/favicon.ico",
-                "assets/algalon-methodology.png",
-                "assets/algalon-overall.png",
+                "assets/algalon-methodology-overview.png",
+                "assets/algalon-portfolio-desktop.png",
+                "assets/algalon-portfolio-mobile.png",
+                "assets/algalon-insights.png",
                 "data/value-model.example.json",
                 "index.html",
+                "methodology.html",
                 "styles.css",
             }
             actual = {

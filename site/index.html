@@ -1,29 +1,22 @@
 <!doctype html>
 <html lang="en">
   <head>
-    <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <meta http-equiv="Content-Security-Policy" content="default-src 'self'; base-uri 'none'; object-src 'none'; form-action 'none'" />
-    <meta name="referrer" content="strict-origin-when-cross-origin" />
-    <meta
-      name="description"
-      content="Algalon is a local, evidence-first GitHub Copilot value model built on OpenTelemetry. Explore its architecture, assumptions, formulas, and calibration limits."
-    />
-    <meta property="og:title" content="Algalon | Evidence-first Copilot value" />
-    <meta
-      property="og:description"
-      content="Understand what Algalon observes, what it models, and how to calibrate GitHub Copilot ROI without overstating the evidence."
-    />
-    <meta property="og:type" content="website" />
-    <meta property="og:url" content="https://melabadi.github.io/Algalon/" />
-    <meta property="og:image" content="https://melabadi.github.io/Algalon/assets/algalon-overall.png" />
-    <title>Algalon | Evidence-first Copilot value</title>
-    <link rel="canonical" href="https://melabadi.github.io/Algalon/" />
-    <link rel="icon" href="assets/favicon.ico" />
-    <link rel="stylesheet" href="styles.css" />
-    <script src="app.js" defer></script>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta http-equiv="Content-Security-Policy" content="default-src 'self'; base-uri 'none'; object-src 'none'; form-action 'none'">
+    <meta name="referrer" content="strict-origin-when-cross-origin">
+    <meta name="description" content="Get started with Algalon: a local view of GitHub Copilot costs, sessions, and modeled value. Your evidence stays on your workstation.">
+    <meta property="og:title" content="Algalon | Your Copilot work, in perspective">
+    <meta property="og:description" content="Understand AI costs, inspect your sessions, and compare modeled value. Download, verify, and get started locally.">
+    <meta property="og:type" content="website">
+    <meta property="og:url" content="https://melabadi.github.io/Algalon/">
+    <meta property="og:image" content="https://melabadi.github.io/Algalon/assets/algalon-portfolio-desktop.png">
+    <title>Algalon | Your Copilot work, in perspective</title>
+    <link rel="canonical" href="https://melabadi.github.io/Algalon/">
+    <link rel="icon" href="assets/favicon.ico">
+    <link rel="stylesheet" href="styles.css">
   </head>
-  <body>
+  <body class="home-page">
     <a class="skip-link" href="#main-content">Skip to content</a>
 
     <header class="site-header">
@@ -32,440 +25,39 @@
         <span>Algalon</span>
       </a>
       <nav class="site-nav" aria-label="Primary navigation">
-        <a href="#features">Features</a>
-        <a href="#method">Methodology</a>
-        <a href="#calibration">Calibration</a>
-        <a href="#sources">Evidence</a>
-        <a href="#install">Install</a>
+        <a href="#install">Get started</a>
+        <a href="#features">The app</a>
+        <a href="methodology.html">Methodology</a>
       </nav>
       <a class="header-link" href="https://github.com/melabadi/Algalon">GitHub</a>
     </header>
 
     <main id="main-content">
-      <section class="hero" id="overview" aria-labelledby="hero-title">
-        <div class="hero-content">
-          <p class="eyebrow">Local OpenTelemetry · explicit assumptions · bounded claims</p>
-          <h1 id="hero-title">Algalon</h1>
-          <p class="hero-lead">
-            See what GitHub Copilot costs, compare modeled value, and inspect the evidence.
-            Your sessions stay on your workstation.
-          </p>
-          <div class="hero-actions">
-            <a class="button button-primary" href="#install">Get Algalon</a>
-            <a class="button" href="https://github.com/melabadi/Algalon/releases/latest">Browse releases</a>
-          </div>
-        </div>
-        <div class="hero-legend" aria-label="Evidence legend">
-          <span><i class="legend-observed"></i>Observed locally</span>
-          <span><i class="legend-configured"></i>Configured</span>
-          <span><i class="legend-modeled"></i>Modeled</span>
+      <section class="intro" id="overview" aria-labelledby="intro-title">
+        <div class="section-inner">
+          <p class="eyebrow">GitHub Copilot / Local analysis</p>
+          <h1 id="intro-title">Algalon</h1>
+          <p class="intro-lead">Your Copilot work, in perspective.</p>
+          <p class="intro-copy">Understand AI costs, inspect your sessions, and compare modeled value. Your evidence stays on your workstation.</p>
+          <div class="intro-facts"><span>Windows, macOS &amp; Linux</span><span>No GitHub token</span><span>Apache-2.0</span></div>
         </div>
       </section>
 
-      <section class="contract-band" id="product">
+      <section class="quick-start" id="install" aria-labelledby="install-title">
         <div class="section-inner">
-          <div class="section-heading split-heading">
-            <div>
-              <p class="eyebrow">The product contract</p>
-              <h2>A local measurement system, not a productivity oracle</h2>
-            </div>
-            <p>
-              Algalon separates measured behavior from configured assumptions and modeled outcomes.
-              That boundary is the product, not a footnote.
-            </p>
+          <div class="setup-heading">
+            <div><p class="eyebrow">Start here</p><h2 id="install-title">Get started</h2><p>Python 3.11+, Docker with Compose, and VS Code with GitHub Copilot.</p></div>
+            <a class="button button-primary" href="https://github.com/melabadi/Algalon/releases/latest">Download the latest release</a>
           </div>
-          <div class="principle-grid">
-            <article>
-              <span class="principle-number">01</span>
-              <h3>Observe the session</h3>
-              <p>Engaged time, phase evidence, tools, models, tokens, and AI credits come from local Copilot evidence. Idle longer than the configured gap is excluded.</p>
-            </article>
-            <article>
-              <span class="principle-number">02</span>
-              <h3>Expose the counterfactual</h3>
-              <p>Manual time is scenario-sensitive. Every rate and multiplier remains visible, ordered, and replaceable.</p>
-            </article>
-            <article>
-              <span class="principle-number">03</span>
-              <h3>Preserve inconvenient results</h3>
-              <p>Negative savings stay negative. Missing retained source creates zero coding benefit. Prompt ROI stays unavailable.</p>
-            </article>
-          </div>
-        </div>
-      </section>
-
-      <section class="features band-light" id="features" aria-labelledby="features-title">
-        <div class="section-inner">
-          <div class="section-heading split-heading">
-            <div>
-              <p class="eyebrow">Inside the app</p>
-              <h2 id="features-title">From the portfolio to the individual prompt</h2>
-            </div>
-            <p>One local installation collects sessions across repositories. The dashboard keeps observed AI usage separate from the assumptions behind modeled value.</p>
-          </div>
-          <figure class="product-overview">
-            <a href="assets/algalon-overall.png"><img src="assets/algalon-overall.png" alt="Synthetic Algalon portfolio showing observed AI costs, modeled net value, and session comparisons" loading="lazy" /></a>
-            <figcaption>Synthetic evidence only. No personal sessions or live telemetry appear on this website.</figcaption>
-          </figure>
-          <div class="feature-grid">
-            <article><h3>Portfolio comparisons</h3><p>Compare net value, break-even time, and delivery-cost reduction across Pessimistic, Base, Optimistic, and Custom scenarios.</p></article>
-            <article><h3>Session drill-down</h3><p>Inspect engaged time, models, tools, tokens, and AI credits. Elapsed duration stays visible without being mistaken for active work.</p></article>
-            <article><h3>Prompt evidence</h3><p>Review captured prompts and usage locally. Prompt-level ROI stays unavailable until its phase and retained-source evidence exists.</p></article>
-            <article><h3>Session Insights</h3><p>Twelve operational measurements highlight patterns worth investigating. Their thresholds are explicit triage defaults, not universal performance targets.</p></article>
-            <article><h3>Named calibrations</h3><p>Save assumption sets, inspect supporting sources, and test sensitivity without changing observed evidence or the worker's published presets.</p></article>
-            <article><h3>Local CSV export</h3><p>Export indexed sessions and prompts for your own analysis. Exports can contain sensitive prompt text and should remain private.</p></article>
-          </div>
-        </div>
-      </section>
-
-      <section class="evidence-boundary band-dark" aria-labelledby="boundary-title">
-        <div class="section-inner">
-          <div class="section-heading">
-            <p class="eyebrow">Evidence boundary</p>
-            <h2 id="boundary-title">Four layers, four different claim strengths</h2>
-            <p>Only the first layer is directly measured behavior. The result becomes less certain as it moves right.</p>
-          </div>
-          <div class="boundary-grid">
-            <article class="boundary-observed">
-              <span>Observed</span>
-              <h3>Session behavior</h3>
-              <p>Wall-clock time, AI credits, model use, tokens, tools, and phase signals.</p>
-            </article>
-            <article class="boundary-deterministic">
-              <span>Deterministic</span>
-              <h3>Matched source delta</h3>
-              <p>Retained characters only when a source-aware producer proves the same-session match.</p>
-            </article>
-            <article class="boundary-configured">
-              <span>Configured</span>
-              <h3>Human assumptions</h3>
-              <p>Labor rate, capacity realization, relevance, review, interaction, and entry rates.</p>
-            </article>
-            <article class="boundary-modeled">
-              <span>Modeled</span>
-              <h3>Economic outcome</h3>
-              <p>Manual time, minutes saved, labor benefit, net value, break-even time, and ROI.</p>
-            </article>
-          </div>
-        </div>
-      </section>
-
-      <section class="pipeline" aria-labelledby="pipeline-title">
-        <div class="section-inner">
-          <div class="section-heading split-heading">
-            <div>
-              <p class="eyebrow">From activity to evidence</p>
-              <h2 id="pipeline-title">One session, one overlap-safe timeline</h2>
-            </div>
-            <p>Algalon groups by authoritative OTel <code>session.id</code>, hashes public labels, and never invents repository identity.</p>
-          </div>
-          <ol class="pipeline-flow">
-            <li><strong>Collect</strong><span>Copilot sends OTLP to the loopback Collector.</span></li>
-            <li><strong>Scrub + commit</strong><span>The Collector removes sensitive fields; FastAPI transactionally deduplicates spans into SQLite.</span></li>
-            <li><strong>Classify</strong><span>Planning, research, coding, validation, and unclassified activity share one timeline.</span></li>
-            <li><strong>Reconcile</strong><span>Matching direct-turn logs refine credits, models, and token totals locally.</span></li>
-            <li><strong>Evaluate</strong><span>The same benchmark engine calculates pessimistic, base, and optimistic branches.</span></li>
+          <ol class="setup-steps">
+            <li><span class="step-number">01</span><div><h3>Download</h3><p>Choose the self-installing <strong>PYZ</strong> and its matching <strong>.sha256</strong> file. ZIP is also available.</p></div></li>
+            <li><span class="step-number">02</span><div><h3>Verify &amp; install</h3><p>Open a terminal in one repository directory. Verify the download, then run the installer with the commands below.</p></div></li>
+            <li><span class="step-number">03</span><div><h3>Open Algalon</h3><p>Reload VS Code, start a new Copilot session, then open <a href="http://127.0.0.1:3000/">your local dashboard</a>.</p></div></li>
           </ol>
-        </div>
-      </section>
-
-      <section class="method band-light" id="method" aria-labelledby="method-title">
-        <div class="section-inner">
-          <div class="section-heading split-heading">
-            <div>
-              <p class="eyebrow">Current formula</p>
-              <h2 id="method-title">Modeled return on observed AI usage cost</h2>
-            </div>
-            <p>
-              The stopwatch and AI usage are observed. The without-AI duration is a scenario estimate.
-              The output is sensitivity analysis, not causal proof.
-            </p>
-          </div>
-
-          <div class="formula-layout">
-            <div class="formula-stack" aria-label="Algalon return formula">
-              <p><span>T<sub>AI</sub></span> = W<sub>engaged</sub> / 60 = Σ T<sub>AI,p</sub></p>
-              <p><span>T<sub>manual,s</sub></span> = Σ T<sub>manual,p,s</sub></p>
-              <p><span>T<sub>saved,s</sub></span> = T<sub>manual,s</sub> − T<sub>AI</sub></p>
-              <p><span>B<sub>s</sub></span> = (T<sub>saved,s</sub> / 60) × H × ρ</p>
-              <p><span>V<sub>net,s</sub></span> = B<sub>s</sub> − C<sub>AI</sub></p>
-              <p><span>R<sub>s</sub></span> = ΔC<sub>gross,s</sub> / C<sub>manual,s</sub></p>
-              <p><span>ROI<sub>s</sub></span> = V<sub>net,s</sub> / C<sub>AI</sub></p>
-            </div>
-            <dl class="formula-definitions">
-              <div><dt>T<sub>AI</sub></dt><dd>Measured AI-assisted engaged minutes, after idle beyond the configured gap is removed.</dd></div>
-              <div><dt>T<sub>manual,s</sub></dt><dd>Modeled equivalent manual minutes under scenario <em>s</em>.</dd></div>
-              <div><dt>H</dt><dd>Configured fully loaded labor rate in USD/hour.</dd></div>
-              <div><dt>ρ</dt><dd>Capacity realization: the share of saved time assumed to become economic value. Reported at 25%, 50%, and 75% so its leverage is visible.</dd></div>
-              <div><dt>C<sub>AI</sub></dt><dd>Observed direct-turn AI usage value, with OTel fallback.</dd></div>
-              <div><dt>R<sub>s</sub></dt><dd>Delivery-cost reduction, bounded at 100% and unaffected by how cheap the model is.</dd></div>
-            </dl>
-          </div>
-
-          <div class="claim-strip">
-            <strong>Interpretation:</strong>
-            <span>Read net value, break-even time, and delivery-cost reduction first. ROI divides by AI credit spend alone, so it rises when the same work is done with a cheaper model. Model cohorts keep mixed sessions intact and are descriptive, not per-model attribution.</span>
-          </div>
-        </div>
-      </section>
-
-      <section class="phase-model" aria-labelledby="phase-title">
-        <div class="section-inner">
-          <div class="section-heading">
-            <p class="eyebrow">Manual-time construction</p>
-            <h2 id="phase-title">Each activity phase uses evidence differently</h2>
-            <p>Tool counts never create value on their own. They appear only inside explicit human-time mechanisms.</p>
-          </div>
-          <div class="table-wrap">
-            <table>
-              <thead>
-                <tr><th>Phase</th><th>Observed evidence</th><th>Manual-time mechanism</th><th>Fail-closed behavior</th></tr>
-              </thead>
-              <tbody>
-                <tr>
-                  <th>Planning</th>
-                  <td>Output and reasoning tokens, planning tools</td>
-                  <td>Relevant tokens ÷ review rate + interaction overhead</td>
-                  <td>Reasoning is scenario-weighted and excluded in pessimistic/base; unmatched activity becomes unclassified</td>
-                </tr>
-                <tr>
-                  <th>Research</th>
-                  <td>Uncached input tokens, research tools</td>
-                  <td>Relevant uncached material ÷ review rate + interaction overhead</td>
-                  <td>Cached context is excluded</td>
-                </tr>
-                <tr>
-                  <th>Coding</th>
-                  <td>Same-session retained source characters</td>
-                  <td>Retained characters × manual-entry fraction ÷ entry rate</td>
-                  <td>No matched source means zero manual coding benefit</td>
-                </tr>
-                <tr>
-                  <th>Validation</th>
-                  <td>Non-overlapping tool runtime, output and reasoning tokens</td>
-                  <td>Observed runtime + review time + interaction overhead</td>
-                  <td>Tool runtime is counted once; reasoning is scenario-weighted</td>
-                </tr>
-                <tr>
-                  <th>Unclassified</th>
-                  <td>Measured engaged minutes</td>
-                  <td>Measured time × explicit scenario multiplier</td>
-                  <td>Nothing is silently discarded; no activity means no modeled value</td>
-                </tr>
-              </tbody>
-            </table>
-          </div>
-        </div>
-      </section>
-
-      <section class="scenario-lab band-dark" aria-labelledby="scenario-title">
-        <div class="section-inner">
-          <div class="section-heading split-heading">
-            <div>
-              <p class="eyebrow">Scenario assumptions</p>
-              <h2 id="scenario-title">Inspect the presets without changing the evidence</h2>
-            </div>
-            <div class="scenario-switch" role="group" aria-label="Methodology scenario">
-              <button type="button" data-scenario="pessimistic">Pessimistic</button>
-              <button type="button" class="active" data-scenario="base">Base</button>
-              <button type="button" data-scenario="optimistic">Optimistic</button>
-            </div>
-          </div>
-          <p id="scenario-status" class="scenario-status" aria-live="polite">Loading the checked-in base assumptions…</p>
-          <div class="table-wrap">
-            <table class="scenario-table">
-              <thead><tr><th>Configured input</th><th>Planning</th><th>Research</th><th>Coding</th><th>Validation</th><th>Unclassified</th></tr></thead>
-              <tbody>
-                <tr><th>Relevant token fraction</th><td data-value="planning.relevantTokenFraction">—</td><td data-value="research.relevantTokenFraction">—</td><td>Not used</td><td data-value="validation.relevantTokenFraction">—</td><td>Not used</td></tr>
-                <tr><th>Reasoning token weight</th><td data-value="planning.reasoningTokenWeight">—</td><td>Not used</td><td>Not used</td><td data-value="validation.reasoningTokenWeight">—</td><td>Not used</td></tr>
-                <tr><th>Human review rate</th><td data-value="planning.tokensPerMinute">—</td><td data-value="research.tokensPerMinute">—</td><td>Not used</td><td data-value="validation.tokensPerMinute">—</td><td>Not used</td></tr>
-                <tr><th>Interaction overhead</th><td data-value="planning.interactionMinutesPerTool">—</td><td data-value="research.interactionMinutesPerTool">—</td><td>Not used</td><td data-value="validation.interactionMinutesPerTool">—</td><td>Not used</td></tr>
-                <tr><th>Source entry</th><td>Not used</td><td>Not used</td><td data-value="coding.summary">—</td><td>Not used</td><td>Not used</td></tr>
-                <tr><th>Manual multiplier</th><td>Not used</td><td>Not used</td><td>Not used</td><td>Not used</td><td data-value="unclassifiedManualMultiplier">—</td></tr>
-              </tbody>
-            </table>
-          </div>
-        </div>
-      </section>
-
-      <section class="break-even" aria-labelledby="break-even-title">
-        <div class="section-inner break-even-layout">
-          <div class="section-heading">
-            <p class="eyebrow">Interactive break-even explorer</p>
-            <h2 id="break-even-title">Ask a simpler question before trusting an ROI percentage</h2>
-            <p>
-              Given the measured session time and AI cost, how long would the same work need to take
-              without AI for modeled realized value to exactly cover the AI usage?
-            </p>
-            <div class="equation-note">
-              T<sub>manual, break-even</sub> = T<sub>AI</sub> + C<sub>AI</sub> ÷ ((H ÷ 60) × ρ)
-            </div>
-          </div>
-          <form class="calculator" id="break-even-form">
-            <div class="calculator-inputs">
-              <label>
-                <span>AI-assisted engaged time</span>
-                <span class="input-unit"><input id="ai-minutes" type="number" min="0.1" step="0.1" value="20" /> min</span>
-              </label>
-              <label>
-                <span>Observed AI usage cost</span>
-                <span class="input-unit">$ <input id="ai-cost" type="number" min="0" step="0.01" value="4" /></span>
-              </label>
-              <label>
-                <span>Loaded labor rate</span>
-                <span class="input-unit">$ <input id="labor-rate" type="number" min="0.01" step="1" value="92" /> / hr</span>
-              </label>
-              <label>
-                <span>Capacity realization</span>
-                <span class="input-unit"><input id="capacity" type="number" min="0.01" max="1" step="0.05" value="0.5" /></span>
-              </label>
-            </div>
-            <div class="calculator-results" aria-live="polite">
-              <div><span>Value per saved minute</span><strong id="value-per-minute">$0.77</strong></div>
-              <div><span>Additional saved time needed</span><strong id="additional-minutes">5.2 min</strong></div>
-              <div class="result-primary"><span>Manual baseline needed</span><strong id="manual-baseline">25.2 min</strong></div>
-              <div><span>Implied time reduction</span><strong id="time-reduction">20.7%</strong></div>
-            </div>
-            <p class="calculator-error" id="calculator-error" role="alert"></p>
-          </form>
-        </div>
-      </section>
-
-      <section class="calibration band-light" id="calibration" aria-labelledby="calibration-title">
-        <div class="section-inner">
-          <div class="section-heading split-heading">
-            <div>
-              <p class="eyebrow">Calibration</p>
-              <h2 id="calibration-title">Literature can bound assumptions. Local evidence must set them.</h2>
-            </div>
-            <p>
-              External studies cover different people, tasks, repositories, and tools. Algalon records whether each citation is direct support,
-              a proxy benchmark, or context only.
-            </p>
-          </div>
-          <h3>Research-anchored shipped defaults</h3>
-          <div class="table-wrap evidence-defaults">
-            <table class="evidence-table">
-              <thead><tr><th>Input</th><th>Previous</th><th>Revised</th><th>Published basis</th><th>Claim limit</th></tr></thead>
-              <tbody>
-                <tr>
-                  <th>Loaded labor rate</th><td>$120/hour</td><td>$92/hour</td>
-                  <td><a href="https://www.bls.gov/ooh/computer-and-information-technology/software-developers.htm">BLS developer wage</a> plus <a href="https://www.bls.gov/news.release/ecec.nr0.htm">BLS benefit share</a></td>
-                  <td>Rounded wage-plus-benefits proxy; local finance remains authoritative.</td>
-                </tr>
-                <tr>
-                  <th>Audit typing rate</th><td>40 WPM</td><td>52 WPM</td>
-                  <td><a href="https://doi.org/10.1145/3173574.3174220">Dhakal et al., 51.56 WPM mean</a></td>
-                  <td>Secondary audit metric only; it does not enter ROI or set coding speed.</td>
-                </tr>
-                <tr>
-                  <th>Lower tool overhead</th><td>0.10 min/tool</td><td>0.12 min/tool</td>
-                  <td><a href="https://doi.org/10.1145/3613904.3641936">Mozannar et al., 7.03-second mean</a></td>
-                  <td>Copilot verification proxy; exact local tool timing and the 0.50-minute upper bound remain unvalidated.</td>
-                </tr>
-              </tbody>
-            </table>
-          </div>
-          <div class="calibration-layout">
-            <figure class="product-figure">
-              <img src="assets/algalon-methodology.png" alt="Algalon calibration workspace with saved calibration controls" loading="lazy" />
-              <figcaption>The running app keeps immutable presets beside browser-local custom calibration sets.</figcaption>
-            </figure>
-            <div class="calibration-steps">
-              <article><span>1</span><div><h3>Separate task populations</h3><p>Do not pool greenfield work, bug fixes, rewrites, and research-only tasks.</p></div></article>
-              <article><span>2</span><div><h3>Measure comparable work</h3><p>Record manual active time by phase, task type, sample size, median, and dispersion.</p></div></article>
-              <article><span>3</span><div><h3>Identify parameters independently</h3><p>Token relevance and review speed enter as α/v. Label relevance and time review separately to avoid false precision.</p></div></article>
-              <article><span>4</span><div><h3>Keep presets as reference</h3><p>Use Custom for sensitivity. Publish a calibration only after deliberate configuration and restart.</p></div></article>
-            </div>
-          </div>
-          <div class="calibration-needs">
-            <h3>Inputs that still require local evidence</h3>
-            <ul>
-              <li>Relevant-token fraction by phase</li>
-              <li>Technical review rate by phase</li>
-              <li>Exact interaction overhead by tool and phase</li>
-              <li>Manual retained-source entry fraction</li>
-              <li>Capacity realization policy</li>
-              <li>Unclassified work multiplier</li>
-              <li>Organization-specific loaded labor rate</li>
-            </ul>
-          </div>
-        </div>
-      </section>
-
-      <section class="sources" id="sources" aria-labelledby="sources-title">
-        <div class="section-inner">
-          <div class="section-heading split-heading">
-            <div>
-              <p class="eyebrow">Curated evidence register</p>
-              <h2 id="sources-title">Evidence that challenges the model, not decoration for it</h2>
-            </div>
-            <div class="support-legend" aria-label="Support strength">
-              <span class="support-direct">Direct</span>
-              <span class="support-proxy">Proxy</span>
-              <span class="support-context">Context</span>
-            </div>
-          </div>
-          <p class="source-intro">
-            The register deliberately includes positive and negative findings. Only the five-character standardized-word convention has direct literature support;
-            reading, typing, labor, and Copilot verification timings remain proxies for local calibration. The presets are literature-informed sensitivities, not validated constants.
-          </p>
-          <div id="source-register" class="source-register" aria-live="polite">
-            <p class="loading-copy">Loading the checked-in evidence register…</p>
-          </div>
-          <noscript>
-            <p>JavaScript is required to render the checked-in source register. Read the full methodology in the repository documentation.</p>
-          </noscript>
-        </div>
-      </section>
-
-      <section class="architecture band-dark" id="architecture" aria-labelledby="architecture-title">
-        <div class="section-inner">
-          <div class="section-heading">
-            <p class="eyebrow">Local architecture</p>
-            <h2 id="architecture-title">One loopback stack for every local repository</h2>
-            <p>The containing repository is only the installation home. It is never treated as the source of another session’s code.</p>
-          </div>
-          <div class="architecture-flow" aria-label="Algalon component flow">
-            <div><span>Repositories</span><strong>Copilot sessions</strong><small>Any local workspace</small></div>
-            <b aria-hidden="true">→</b>
-            <div><span>Privacy boundary</span><strong>OTel Collector</strong><small>4317 · 4318 · 13133</small></div>
-            <b aria-hidden="true">→</b>
-            <div><span>Transactional inbox</span><strong>FastAPI + SQLite</strong><small>Deduplicated local spans</small></div>
-            <b aria-hidden="true">→</b>
-            <div><span>Calculation</span><strong>TypeScript worker</strong><small>Cursor pages + benchmark</small></div>
-            <b aria-hidden="true">→</b>
-            <div><span>Experience</span><strong>FastAPI + React</strong><small>127.0.0.1:3000</small></div>
-          </div>
-          <div class="privacy-grid">
-            <article><h3>Never metric labels</h3><p>Prompt text, paths, repository identity, commands, payloads, and raw session IDs.</p></article>
-            <article><h3>Stored locally</h3><p>Privacy-scrubbed SQLite span inbox and prompt read model, aggregate metrics, scrubbed logs, and optional Grafana state.</p></article>
-            <article><h3>No external dependency</h3><p>No GitHub token, REST billing API, repository registration, or manual experiment boundary.</p></article>
-          </div>
-        </div>
-      </section>
-
-      <section class="install" id="install" aria-labelledby="install-title">
-        <div class="section-inner install-layout">
-          <div>
-            <p class="eyebrow">Run it locally</p>
-            <h2 id="install-title">Install on Windows, macOS, or Linux</h2>
-            <p>You'll need Python 3.11+, Docker with Compose, and VS Code with GitHub Copilot. Node.js is needed only when building from source.</p>
-            <p><strong>PYZ</strong> is the recommended self-installing package, including transactional upgrades. <strong>ZIP</strong> contains the same runtime for inspection or a fresh manual installation.</p>
-            <div class="hero-actions">
-              <a class="button button-primary" href="https://github.com/melabadi/Algalon/releases/latest">Download ZIP or PYZ</a>
-              <a class="button" href="https://github.com/melabadi/Algalon/blob/main/docs/local-deployment/README.md">Full installation guide</a>
-            </div>
-            <p class="release-trust">Release gates include CodeQL, dependency and secret scans, and artifact smoke tests. Downloads include SHA-256 checksums and build-provenance attestations.</p>
-            <a class="source-link" href="https://github.com/melabadi/Algalon/security/policy">Security policy and verification</a>
-          </div>
-          <div class="installation-guide">
-            <ol class="install-steps">
-              <li><span>1</span><div><strong>Download and verify</strong><p>Download a PYZ and its matching .sha256 file from the same release. Replace &lt;version&gt; below with that release's version.</p></div></li>
-              <li><span>2</span><div><strong>Run from one repository directory</strong><p>Choose one installation home. It receives Copilot telemetry from all local repositories; a second stack is not needed.</p></div></li>
-            </ol>
-            <details class="install-platform" open>
+          <div class="setup-details">
+            <details class="install-platform">
               <summary>Windows PowerShell</summary>
+              <p>Replace &lt;version&gt; with the downloaded release number. Run from your chosen repository directory.</p>
               <pre><code>$release = "C:\Downloads\copilot-value-dashboard-&lt;version&gt;.pyz"
 $expected = (Get-Content "$release.sha256").Split()[0]
 $actual = (Get-FileHash $release -Algorithm SHA256).Hash
@@ -474,6 +66,7 @@ python $release</code></pre>
             </details>
             <details class="install-platform">
               <summary>macOS and Linux</summary>
+              <p>Replace &lt;version&gt; with the downloaded release number. Run from your chosen repository directory.</p>
               <pre><code>release="$HOME/Downloads/copilot-value-dashboard-&lt;version&gt;.pyz"
 (cd "$HOME/Downloads" &amp;&amp;
   if command -v sha256sum &gt;/dev/null 2&gt;&amp;1; then
@@ -496,11 +89,45 @@ python .copilot-value/scripts/copilot_value.py install
 # macOS or Linux
 python3 .copilot-value/scripts/copilot_value.py install</code></pre>
             </details>
-            <ol class="install-steps" start="3">
-              <li><span>3</span><div><strong>Reload VS Code and start a new Copilot session</strong><code>Developer: Reload Window</code></div></li>
-              <li><span>4</span><div><strong>Open your local dashboard</strong><a class="source-link" href="http://127.0.0.1:3000/">http://127.0.0.1:3000/</a></div></li>
-            </ol>
           </div>
+          <div class="setup-links"><a href="https://github.com/melabadi/Algalon/blob/main/docs/local-deployment/README.md">Full installation guide</a><a href="https://github.com/melabadi/Algalon/security/policy">Security &amp; verification</a><span>One installation covers all your local repositories.</span></div>
+        </div>
+      </section>
+
+      <section class="features" id="features" aria-labelledby="features-title">
+        <div class="section-inner">
+          <div class="section-heading split-heading">
+            <div>
+              <p class="eyebrow">A closer look</p>
+              <h2 id="features-title">From the big picture to the evidence</h2>
+            </div>
+            <p>One local installation collects sessions across repositories. The dashboard keeps observed AI usage separate from the assumptions behind modeled value.</p>
+          </div>
+          <figure class="app-preview">
+            <div class="preview-heading"><div><span class="preview-index">01 / Portfolio</span><h3>See the whole picture</h3></div><a href="assets/algalon-portfolio-desktop.png">View full size</a></div>
+            <a class="preview-image" href="assets/algalon-portfolio-desktop.png"><picture><source media="(max-width: 760px)" srcset="assets/algalon-portfolio-mobile.png" width="375" height="1192"><img src="assets/algalon-portfolio-desktop.png" alt="Synthetic Algalon portfolio showing observed AI costs, modeled net value, and session comparisons" width="1585" height="1004" loading="lazy"></picture></a>
+            <figcaption>Synthetic example data. No personal sessions or workstation telemetry.</figcaption>
+          </figure>
+          <div class="feature-grid">
+            <article><h3>Portfolio comparisons</h3><p>Compare net value, break-even time, and delivery-cost reduction across Pessimistic, Base, Optimistic, and Custom scenarios.</p></article>
+            <article><h3>Session drill-down</h3><p>Inspect engaged time, models, tools, tokens, and AI credits. Elapsed duration stays visible without being mistaken for active work.</p></article>
+            <article><h3>Prompt evidence</h3><p>Review captured prompts and usage locally. Prompt-level ROI stays unavailable until its phase and retained-source evidence exists.</p></article>
+            <article><h3>Session Insights</h3><p>Twelve operational measurements highlight patterns worth investigating. Their thresholds are explicit triage defaults, not universal performance targets.</p></article>
+            <article><h3>Named calibrations</h3><p>Save assumption sets, inspect supporting sources, and test sensitivity without changing observed evidence or the worker's published presets.</p></article>
+            <article><h3>Local CSV export</h3><p>Export indexed sessions and prompts for your own analysis. Exports can contain sensitive prompt text and should remain private.</p></article>
+          </div>
+          <figure class="app-preview insights-preview">
+            <div class="preview-heading"><div><span class="preview-index">02 / Session Insights</span><h3>Understand the way you work</h3></div><a href="assets/algalon-insights.png">View full size</a></div>
+            <a class="preview-image" href="assets/algalon-insights.png"><img src="assets/algalon-insights.png" alt="Synthetic Session Insights showing usage coverage and operational signals with their context" width="1585" height="898" loading="lazy"></a>
+            <figcaption>A focused view of the Insights dashboard, using synthetic observations.</figcaption>
+          </figure>
+        </div>
+      </section>
+
+      <section class="method-summary band-light" aria-labelledby="method-summary-title">
+        <div class="section-inner">
+          <div><p class="eyebrow">Behind the numbers</p><h2 id="method-summary-title">An estimate you can examine.</h2><p>Costs and activity are observed. Time saved is modeled under explicit assumptions, not causal proof of productivity. Negative results and missing evidence remain visible.</p></div>
+          <a class="button" href="methodology.html">Explore the methodology</a>
         </div>
       </section>
     </main>
@@ -512,10 +139,11 @@ python3 .copilot-value/scripts/copilot_value.py install</code></pre>
         <div>
           <a href="https://github.com/melabadi/Algalon">Source</a>
           <a href="https://github.com/melabadi/Algalon/releases">Releases</a>
-          <a href="https://github.com/melabadi/Algalon/blob/main/docs/methodology.md">Full methodology</a>
+          <a href="methodology.html">Methodology</a>
           <a href="https://github.com/melabadi/Algalon/blob/main/docs/roi-formula-evolution.md">Formula history</a>
         </div>
       </div>
     </footer>
+
   </body>
 </html>
