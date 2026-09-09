@@ -915,6 +915,7 @@ def command_bundle(arguments: argparse.Namespace) -> int:
             "docker/.env.example",
             ".dockerignore",
             "LICENSE",
+            "SECURITY.md",
             "README.md",
             "docs/images",
             "docs/local-deployment/README.md",

@@ -3,6 +3,8 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta http-equiv="Content-Security-Policy" content="default-src 'self'; base-uri 'none'; object-src 'none'; form-action 'none'" />
+    <meta name="referrer" content="strict-origin-when-cross-origin" />
     <meta
       name="description"
       content="Algalon is a local, evidence-first GitHub Copilot value model built on OpenTelemetry. Explore its architecture, assumptions, formulas, and calibration limits."
@@ -17,6 +19,7 @@
     <meta property="og:image" content="https://melabadi.github.io/Algalon/assets/algalon-overall.png" />
     <title>Algalon | Evidence-first Copilot value</title>
     <link rel="canonical" href="https://melabadi.github.io/Algalon/" />
+    <link rel="icon" href="assets/favicon.ico" />
     <link rel="stylesheet" href="styles.css" />
     <script src="app.js" defer></script>
   </head>
@@ -29,11 +32,11 @@
         <span>Algalon</span>
       </a>
       <nav class="site-nav" aria-label="Primary navigation">
-        <a href="#product">Product</a>
-        <a href="#method">Method</a>
+        <a href="#features">Features</a>
+        <a href="#method">Methodology</a>
         <a href="#calibration">Calibration</a>
         <a href="#sources">Evidence</a>
-        <a href="#architecture">Architecture</a>
+        <a href="#install">Install</a>
       </nav>
       <a class="header-link" href="https://github.com/melabadi/Algalon">GitHub</a>
     </header>
@@ -44,12 +47,12 @@
           <p class="eyebrow">Local OpenTelemetry · explicit assumptions · bounded claims</p>
           <h1 id="hero-title">Algalon</h1>
           <p class="hero-lead">
-            Measure GitHub Copilot sessions locally, model the manual counterfactual transparently,
-            and test whether the observed AI usage cost clears a credible break-even threshold.
+            See what GitHub Copilot costs, compare modeled value, and inspect the evidence.
+            Your sessions stay on your workstation.
           </p>
           <div class="hero-actions">
-            <a class="button button-primary" href="#method">Explore the methodology</a>
-            <a class="button" href="https://github.com/melabadi/Algalon/releases/latest">Download latest release</a>
+            <a class="button button-primary" href="#install">Get Algalon</a>
+            <a class="button" href="https://github.com/melabadi/Algalon/releases/latest">Browse releases</a>
           </div>
         </div>
         <div class="hero-legend" aria-label="Evidence legend">
@@ -87,6 +90,30 @@
               <h3>Preserve inconvenient results</h3>
               <p>Negative savings stay negative. Missing retained source creates zero coding benefit. Prompt ROI stays unavailable.</p>
             </article>
+          </div>
+        </div>
+      </section>
+
+      <section class="features band-light" id="features" aria-labelledby="features-title">
+        <div class="section-inner">
+          <div class="section-heading split-heading">
+            <div>
+              <p class="eyebrow">Inside the app</p>
+              <h2 id="features-title">From the portfolio to the individual prompt</h2>
+            </div>
+            <p>One local installation collects sessions across repositories. The dashboard keeps observed AI usage separate from the assumptions behind modeled value.</p>
+          </div>
+          <figure class="product-overview">
+            <a href="assets/algalon-overall.png"><img src="assets/algalon-overall.png" alt="Synthetic Algalon portfolio showing observed AI costs, modeled net value, and session comparisons" loading="lazy" /></a>
+            <figcaption>Synthetic evidence only. No personal sessions or live telemetry appear on this website.</figcaption>
+          </figure>
+          <div class="feature-grid">
+            <article><h3>Portfolio comparisons</h3><p>Compare net value, break-even time, and delivery-cost reduction across Pessimistic, Base, Optimistic, and Custom scenarios.</p></article>
+            <article><h3>Session drill-down</h3><p>Inspect engaged time, models, tools, tokens, and AI credits. Elapsed duration stays visible without being mistaken for active work.</p></article>
+            <article><h3>Prompt evidence</h3><p>Review captured prompts and usage locally. Prompt-level ROI stays unavailable until its phase and retained-source evidence exists.</p></article>
+            <article><h3>Session Insights</h3><p>Twelve operational measurements highlight patterns worth investigating. Their thresholds are explicit triage defaults, not universal performance targets.</p></article>
+            <article><h3>Named calibrations</h3><p>Save assumption sets, inspect supporting sources, and test sensitivity without changing observed evidence or the worker's published presets.</p></article>
+            <article><h3>Local CSV export</h3><p>Export indexed sessions and prompts for your own analysis. Exports can contain sensitive prompt text and should remain private.</p></article>
           </div>
         </div>
       </section>
@@ -422,15 +449,58 @@
         <div class="section-inner install-layout">
           <div>
             <p class="eyebrow">Run it locally</p>
-            <h2 id="install-title">One self-installing file</h2>
-            <p>Python 3.11+ and Docker Compose are the only runtime prerequisites. Node.js is needed only to build from source.</p>
-            <a class="button button-primary" href="https://github.com/melabadi/Algalon/releases/latest">Open latest release</a>
+            <h2 id="install-title">Install on Windows, macOS, or Linux</h2>
+            <p>You'll need Python 3.11+, Docker with Compose, and VS Code with GitHub Copilot. Node.js is needed only when building from source.</p>
+            <p><strong>PYZ</strong> is the recommended self-installing package, including transactional upgrades. <strong>ZIP</strong> contains the same runtime for inspection or a fresh manual installation.</p>
+            <div class="hero-actions">
+              <a class="button button-primary" href="https://github.com/melabadi/Algalon/releases/latest">Download ZIP or PYZ</a>
+              <a class="button" href="https://github.com/melabadi/Algalon/blob/main/docs/local-deployment/README.md">Full installation guide</a>
+            </div>
+            <p class="release-trust">Release gates include CodeQL, dependency and secret scans, and artifact smoke tests. Downloads include SHA-256 checksums and build-provenance attestations.</p>
+            <a class="source-link" href="https://github.com/melabadi/Algalon/security/policy">Security policy and verification</a>
           </div>
-          <ol class="install-steps">
-            <li><span>1</span><div><strong>Download and verify</strong><code>copilot-value-dashboard-&lt;version&gt;.pyz</code></div></li>
-            <li><span>2</span><div><strong>Run from one repository root</strong><code>python copilot-value-dashboard-&lt;version&gt;.pyz</code></div></li>
-            <li><span>3</span><div><strong>Reload VS Code</strong><code>Developer: Reload Window</code></div></li>
-          </ol>
+          <div class="installation-guide">
+            <ol class="install-steps">
+              <li><span>1</span><div><strong>Download and verify</strong><p>Download a PYZ and its matching .sha256 file from the same release. Replace &lt;version&gt; below with that release's version.</p></div></li>
+              <li><span>2</span><div><strong>Run from one repository directory</strong><p>Choose one installation home. It receives Copilot telemetry from all local repositories; a second stack is not needed.</p></div></li>
+            </ol>
+            <details class="install-platform" open>
+              <summary>Windows PowerShell</summary>
+              <pre><code>$release = "C:\Downloads\copilot-value-dashboard-&lt;version&gt;.pyz"
+$expected = (Get-Content "$release.sha256").Split()[0]
+$actual = (Get-FileHash $release -Algorithm SHA256).Hash
+if ($actual -ne $expected) { throw "Checksum mismatch" }
+python $release</code></pre>
+            </details>
+            <details class="install-platform">
+              <summary>macOS and Linux</summary>
+              <pre><code>release="$HOME/Downloads/copilot-value-dashboard-&lt;version&gt;.pyz"
+(cd "$HOME/Downloads" &amp;&amp;
+  if command -v sha256sum &gt;/dev/null 2&gt;&amp;1; then
+    sha256sum --check "$(basename "$release").sha256"
+  else
+    shasum -a 256 --check "$(basename "$release").sha256"
+  fi) &amp;&amp;
+python3 "$release"</code></pre>
+            </details>
+            <details class="install-platform">
+              <summary>Verify build provenance</summary>
+              <p>With GitHub CLI installed, verify either downloaded format before running or extracting it:</p>
+              <pre><code>gh attestation verify &lt;downloaded-file&gt; --repo melabadi/Algalon</code></pre>
+            </details>
+            <details class="install-platform">
+              <summary>ZIP: fresh manual installation</summary>
+              <p>Verify the ZIP checksum and provenance, then extract it into a new <code>.copilot-value</code> directory inside the chosen repository. Use the PYZ for upgrades to existing installations.</p>
+              <pre><code># Windows
+python .copilot-value/scripts/copilot_value.py install
+# macOS or Linux
+python3 .copilot-value/scripts/copilot_value.py install</code></pre>
+            </details>
+            <ol class="install-steps" start="3">
+              <li><span>3</span><div><strong>Reload VS Code and start a new Copilot session</strong><code>Developer: Reload Window</code></div></li>
+              <li><span>4</span><div><strong>Open your local dashboard</strong><a class="source-link" href="http://127.0.0.1:3000/">http://127.0.0.1:3000/</a></div></li>
+            </ol>
+          </div>
         </div>
       </section>
     </main>
@@ -441,6 +511,7 @@
         <p>Modeled AI usage ROI over local observed evidence. Not causal productivity proof.</p>
         <div>
           <a href="https://github.com/melabadi/Algalon">Source</a>
+          <a href="https://github.com/melabadi/Algalon/releases">Releases</a>
           <a href="https://github.com/melabadi/Algalon/blob/main/docs/methodology.md">Full methodology</a>
           <a href="https://github.com/melabadi/Algalon/blob/main/docs/roi-formula-evolution.md">Formula history</a>
         </div>

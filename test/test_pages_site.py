@@ -69,6 +69,8 @@ class PagesSiteTests(unittest.TestCase):
         expected = {
             "styles.css",
             "app.js",
+            "assets/favicon.ico",
+            "assets/algalon-overall.png",
             "assets/algalon-methodology.png",
         }
         self.assertEqual(set(self.parser.local_links), expected)
@@ -107,12 +109,32 @@ class PagesSiteTests(unittest.TestCase):
         self.assertEqual(support_levels, {"direct", "proxy", "context"})
         self.assertIn("calibrationSources", self.script)
 
+    def test_introduces_features_and_verifiable_installation(self) -> None:
+        for required in (
+            'id="features"',
+            "Portfolio comparisons",
+            "Session Insights",
+            "Prompt evidence",
+            "Local CSV export",
+            "Windows PowerShell",
+            "macOS and Linux",
+            "ZIP: fresh manual installation",
+            "Get-FileHash",
+            "shasum -a 256 --check",
+            "gh attestation verify",
+            "Content-Security-Policy",
+            "https://github.com/melabadi/Algalon/releases/latest",
+            "https://github.com/melabadi/Algalon/security/policy",
+            "http://127.0.0.1:3000/",
+        ):
+            self.assertIn(required, self.html)
+
     def test_pages_workflow_stages_only_required_runtime_inputs(self) -> None:
         workflow = (ROOT / ".github" / "workflows" / "pages.yml").read_text(encoding="utf-8")
         for required in (
-            "actions/configure-pages@v5",
-            "actions/upload-pages-artifact@v3",
-            "actions/deploy-pages@v4",
+            "actions/configure-pages@",
+            "actions/upload-pages-artifact@",
+            "actions/deploy-pages@",
             "python scripts/build_pages_site.py",
         ):
             self.assertIn(required, workflow)
@@ -124,6 +146,7 @@ class PagesSiteTests(unittest.TestCase):
             expected = {
                 ".nojekyll",
                 "app.js",
+                "assets/favicon.ico",
                 "assets/algalon-methodology.png",
                 "assets/algalon-overall.png",
                 "data/value-model.example.json",

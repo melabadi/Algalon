@@ -13,6 +13,13 @@ concurrency:
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
+  security:
+    uses: ./.github/workflows/security.yml
+    permissions:
+      contents: read
+      actions: read
+      security-events: write
+
   test:
     strategy:
       fail-fast: false
@@ -23,10 +30,12 @@ jobs:
 
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
 
       - name: Set up Node.js
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
         with:
           node-version: 22
           cache: npm
@@ -35,7 +44,7 @@ jobs:
             web/package-lock.json
 
       - name: Set up Python
-        uses: actions/setup-python@v5
+        uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
         with:
           python-version: '3.11'
 
@@ -58,7 +67,7 @@ jobs:
         run: python scripts/copilot_value.py bundle --skip-tests --output-directory .ci-artifacts
 
   bundle:
-    needs: test
+    needs: [test, security]
     runs-on: windows-latest
     timeout-minutes: 20
     outputs:
@@ -66,12 +75,13 @@ jobs:
 
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
         with:
           fetch-depth: 0
+          persist-credentials: false
 
       - name: Set up Node.js
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
         with:
           node-version: 22
           cache: npm
@@ -80,7 +90,7 @@ jobs:
             web/package-lock.json
 
       - name: Set up Python
-        uses: actions/setup-python@v5
+        uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
         with:
           python-version: '3.11'
 
@@ -110,7 +120,7 @@ jobs:
         run: python scripts/copilot_value.py smoke-bundle --skip-build --skip-telemetry
 
       - name: Upload release artifact
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
           name: copilot-value-dashboard-${{ steps.version.outputs.version }}
           path: |
@@ -126,20 +136,22 @@ jobs:
 
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
 
       - name: Set up Node.js
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
         with:
           node-version: 22
 
       - name: Set up Python
-        uses: actions/setup-python@v5
+        uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
         with:
           python-version: '3.11'
 
       - name: Download release artifact
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
         with:
           name: copilot-value-dashboard-${{ needs.bundle.outputs.version }}
           path: artifacts
@@ -151,6 +163,9 @@ jobs:
       - name: Smoke portable Docker bundle
         run: python scripts/copilot_value.py smoke-bundle --skip-build --bundle artifacts/copilot-value-dashboard-${{ needs.bundle.outputs.version }}.pyz
 
+      - name: Smoke ZIP packaging
+        run: python scripts/copilot_value.py smoke-bundle --skip-build --skip-telemetry --bundle artifacts/copilot-value-dashboard-${{ needs.bundle.outputs.version }}.zip
+
   release:
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'
     needs: [bundle, linux-bundle-smoke]
@@ -158,10 +173,12 @@ jobs:
     timeout-minutes: 10
     permissions:
       contents: write
+      id-token: write
+      attestations: write
 
     steps:
       - name: Download smoke-tested release artifact
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
         with:
           name: copilot-value-dashboard-${{ needs.bundle.outputs.version }}
           path: artifacts
@@ -181,6 +198,13 @@ jobs:
             test -f "$asset"
           done
           (cd artifacts && sha256sum --check *.sha256)
+
+      - name: Attest smoke-tested release artifacts
+        uses: actions/attest-build-provenance@e8998f949152b193b063cb0ec769d69d929409be
+        with:
+          subject-path: |
+            artifacts/*.pyz
+            artifacts/*.zip
 
       - name: Publish GitHub Release
         shell: bash
@@ -202,4 +226,6 @@ jobs:
             --repo "$GITHUB_REPOSITORY" \
             --target "$GITHUB_SHA" \
             --title "$tag" \
+            --draft \
             --generate-notes
+          gh release edit "$tag" --repo "$GITHUB_REPOSITORY" --draft=false --latest

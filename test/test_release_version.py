@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from pathlib import Path
 import json
+import re
 import subprocess
 import tempfile
 import unittest
@@ -58,11 +59,16 @@ class ReleaseVersionTests(unittest.TestCase):
             "fetch-depth: 0",
             "python scripts/next_patch_version.py",
             "npm version $version --no-git-tag-version",
+            "uses: ./.github/workflows/security.yml",
+            "needs: [test, security]",
             "needs: [bundle, linux-bundle-smoke]",
             "smoke-bundle --skip-build --bundle artifacts/copilot-value-dashboard-${{ needs.bundle.outputs.version }}.pyz",
             "contents: write",
             "github.ref == 'refs/heads/main'",
             "gh release create",
+            "actions/attest-build-provenance@",
+            "attestations: write",
+            "--draft=false --latest",
             "artifacts/copilot-value-dashboard-${version}.pyz",
             "artifacts/copilot-value-dashboard-${version}.zip",
             "sha256sum --check *.sha256",
@@ -72,6 +78,34 @@ class ReleaseVersionTests(unittest.TestCase):
                 self.assertIn(expected, workflow)
         self.assertNotIn("git commit", workflow)
         self.assertNotIn("git push", workflow)
+
+    def test_external_workflow_actions_are_immutable(self) -> None:
+        directory = Path(__file__).resolve().parents[1] / ".github" / "workflows"
+        for path in directory.glob("*.yml"):
+            workflow = path.read_text(encoding="utf-8")
+            self.assertNotIn("pull_request_target:", workflow)
+            for action in re.findall(r"(?m)^\s+(?:-\s+)?uses:\s*(\S+)", workflow):
+                if not action.startswith("./"):
+                    with self.subTest(workflow=path.name, action=action):
+                        self.assertRegex(action, r"^[^@]+@[0-9a-f]{40}$")
+
+    def test_security_scans_fail_closed(self) -> None:
+        workflow = (Path(__file__).resolve().parents[1] / ".github" / "workflows" / "security.yml").read_text(
+            encoding="utf-8"
+        )
+        for required in (
+            "javascript-typescript, python",
+            "queries: security-extended",
+            "if findings:",
+            "gitleaks/gitleaks-action@",
+            "fetch-depth: 0",
+            "npm audit --audit-level=low",
+            "npm audit --prefix web --audit-level=low",
+            "pip_audit -r requirements-dev.txt --strict",
+        ):
+            self.assertIn(required, workflow)
+        self.assertNotIn("continue-on-error", workflow)
+        self.assertNotIn("|| true", workflow)
 
 
 if __name__ == "__main__":

@@ -2,7 +2,7 @@
 
 This project packages a central local GitHub Copilot ROI calculator and drill-down web app. One loopback-only stack aggregates OTel sessions from every local repository using the configured VS Code instance. It requires no GitHub token and makes no GitHub REST calls.
 
-- **Project website** sources in [site/](site/) explain the product, methodology, evidence hierarchy, calibration limits, and architecture.
+- **Project website** at <https://melabadi.github.io/Algalon/> introduces the app, features, methodology, evidence, and installation. Sources live in [site/](site/).
 - **Algalon** at <http://127.0.0.1:3000> provides overall, session, prompt, prompt-detail, and methodology views, plus an explicit local CSV export of every indexed session and prompt.
 - **Session Insights** at <http://127.0.0.1:3000/insights> derives twelve operational measurements from complete authoritative settled-session usage. Prompt retention never affects these values; incomplete session usage fails closed. Signals are explicit Algalon triage defaults rather than universal norms. See [Session insight metrics](docs/session-insights.md).
 - **Grafana** remains an optional advanced metrics surface at <http://127.0.0.1:3001> when its Compose profile is enabled.
@@ -166,6 +166,8 @@ Use `python scripts/copilot_value.py bundle` for a release build and `python scr
 Generated `node_modules/`, `dist/`, `web/dist/`, `data/`, local configuration, Compose `.env`, and release `artifacts/` are ignored and may be regenerated. Keep the current release artifacts only when they are needed for distribution or smoke testing.
 
 ### Public-source safety
+
+Public releases are gated on CodeQL, dependency audits, secret scans, coverage, and exact-artifact smoke tests. ZIP and PYZ downloads include SHA-256 checksums and build-provenance attestations; newly published releases are immutable. See [Security](SECURITY.md) for verification and private vulnerability reporting.
 
 Run `python -m unittest discover -s test -p test_public_source.py` before staging a public change. It rejects private/generated files, corporate package endpoints, personal contacts and workstation paths, and nonpublic lockfile URLs. Run Gitleaks against the final source tree and commit history as a separate credential check; these checks do not replace review of screenshots, fixtures, or new external links.
 

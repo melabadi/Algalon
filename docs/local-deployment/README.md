@@ -26,7 +26,7 @@ Node.js is not required to install a published `.pyz`. It is required only when 
 
 ## Obtain the release
 
-Use a published `copilot-value-dashboard-<version>.pyz` and its `.sha256` file from [GitHub Releases](https://github.com/melabadi/Algalon/releases), or build them from a source checkout. A successful push to `main` publishes the next patch release after the exact artifacts pass Windows and Linux smoke tests.
+Download the self-installing `copilot-value-dashboard-<version>.pyz` or conventional `.zip` and its matching `.sha256` file from [GitHub Releases](https://github.com/melabadi/Algalon/releases), or build from a source checkout. Publication requires successful CodeQL analysis, dependency and secret scans, coverage checks, and smoke tests of the exact artifacts. The PYZ is recommended for installation and transactional upgrades; the ZIP supports inspection or a fresh manual installation.
 
 Windows:
 
@@ -64,6 +64,14 @@ On macOS:
 shasum -a 256 --check copilot-value-dashboard-<version>.pyz.sha256
 ```
 
+Use the ZIP filename and checksum instead when verifying the ZIP. With GitHub CLI installed, also verify the build provenance for either downloaded format:
+
+```sh
+gh attestation verify copilot-value-dashboard-<version>.pyz --repo melabadi/Algalon
+```
+
+New releases are immutable after all assets are attached and the draft is published. A valid checksum and attestation confirm artifact identity and origin, not the absence of all vulnerabilities. See the [security policy](../../SECURITY.md).
+
 ## Install once into a repository
 
 Open a terminal at a repository root that will hold the installation, then run the release by absolute or relative path. This location is the runtime home, not the measurement scope.
@@ -81,6 +89,8 @@ macOS or Linux:
 cd ~/repos/my-project
 python3 ~/Downloads/copilot-value-dashboard-<version>.pyz
 ```
+
+For a fresh ZIP installation, extract the verified ZIP into a new `.copilot-value` directory in the chosen repository. Run `python .copilot-value/scripts/copilot_value.py install` on Windows or `python3 .copilot-value/scripts/copilot_value.py install` on macOS/Linux. Do not extract over an existing installation; use the PYZ for upgrades.
 
 The installer:
 

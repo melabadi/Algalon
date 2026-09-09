@@ -195,6 +195,7 @@ class BundleConstructionTests(unittest.TestCase):
             self.assertEqual(run_checked.call_count, 3)
             with zipfile.ZipFile(bundle) as archive:
                 self.assertEqual(archive.read("LICENSE").decode("utf-8").splitlines(), ["payload"])
+                self.assertEqual(archive.read("SECURITY.md").decode("utf-8").splitlines(), ["payload"])
                 self.assertNotIn("__main__.py", archive.namelist())
                 self.assertNotIn("test", {name.split("/")[0] for name in archive.namelist()})
                 self.assertIn("dist/shared/placeholder.txt", archive.namelist())
@@ -208,6 +209,7 @@ class BundleConstructionTests(unittest.TestCase):
                 )
             with zipfile.ZipFile(application) as archive:
                 self.assertEqual(archive.read("LICENSE").decode("utf-8").splitlines(), ["payload"])
+                self.assertEqual(archive.read("SECURITY.md").decode("utf-8").splitlines(), ["payload"])
                 self.assertIn("__main__.py", archive.namelist())
                 self.assertIn("scripts/__init__.py", archive.namelist())
 
