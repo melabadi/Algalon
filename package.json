@@ -21,7 +21,7 @@
     "smoke:privacy": "npm run build --silent && node dist/src/privacy-smoke.js"
   },
   "dependencies": {
-    "diff": "8.0.3",
+    "diff": "9.0.0",
     "zod": "4.4.3"
   },
   "devDependencies": {
