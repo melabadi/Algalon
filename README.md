@@ -95,7 +95,7 @@ docker compose --env-file docker/.env -f docker/compose.yaml up --build
 
 Keep this foreground process open during development. On Windows installations where `docker` is a one-shot `wsl.exe` wrapper, the foreground process also keeps the WSL VM alive. The packaged CLI handles that keepalive automatically for detached end-user installations.
 
-Add `--profile grafana` to start optional Grafana. Stop with `Ctrl+C`, then remove the containers while retaining named volumes:
+Use the installed CLI's `grafana` command for optional authenticated Grafana. Direct Compose startup does not create an admin account. Stop with `Ctrl+C`, then remove the containers while retaining named volumes:
 
 ```powershell
 docker compose --env-file docker/.env -f docker/compose.yaml down
@@ -287,7 +287,7 @@ The React app is the primary interface. To start the legacy/advanced Grafana met
 python .\.copilot-value\scripts\copilot_value.py grafana
 ```
 
-The command prints the local Grafana password. Grafana reads the same VictoriaMetrics series and does not replace the React drill-down app.
+The command securely prompts for an admin password of at least 16 characters. It never prints the password or stores it in local configuration; Grafana retains the password hash in its own volume. Running the command again sets or resets that password. Grafana reads the same VictoriaMetrics series and does not replace the React drill-down app.
 
 ### Upgrade
 

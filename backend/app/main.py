@@ -6,9 +6,10 @@ import logging
 import os
 from pathlib import Path
 
-from fastapi import FastAPI, HTTPException, Query
-from fastapi.responses import FileResponse, JSONResponse, Response
+from fastapi import FastAPI, HTTPException, Query, Request
+from fastapi.responses import JSONResponse, Response
 from fastapi.staticfiles import StaticFiles
+from starlette.exceptions import HTTPException as StarletteHTTPException
 
 from .csv_export import build_csv_export
 from .store import SCENARIOS, ValueStore
@@ -141,13 +142,16 @@ def export_csv() -> Response:
 
 
 if static_directory.exists():
+    frontend_files = StaticFiles(directory=static_directory)
     assets_directory = static_directory / "assets"
     if assets_directory.exists():
         app.mount("/assets", StaticFiles(directory=assets_directory), name="assets")
 
     @app.get("/{path:path}", include_in_schema=False)
-    def frontend(path: str):
-        candidate = static_directory / path
-        if path and candidate.is_file():
-            return FileResponse(candidate)
-        return FileResponse(static_directory / "index.html")
+    async def frontend(path: str, request: Request):
+        try:
+            return await frontend_files.get_response(path, request.scope)
+        except StarletteHTTPException as error:
+            if error.status_code != 404:
+                raise
+        return await frontend_files.get_response("index.html", request.scope)

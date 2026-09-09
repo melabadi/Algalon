@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import argparse
 import base64
+import getpass
 import hashlib
 import json
 import os
@@ -255,12 +256,9 @@ def grafana_authenticates(password: str, base_url: str = "http://127.0.0.1:3001"
         return False
 
 
-def reconcile_grafana_password(runtime: DockerRuntime, root: Path) -> str:
-    password = read_environment(root / "docker" / ".env").get("GRAFANA_ADMIN_PASSWORD")
-    if not password:
-        raise CopilotValueError("Grafana password is missing from docker/.env. Run install again.")
+def reconcile_grafana_password(runtime: DockerRuntime, root: Path, password: str) -> None:
     if grafana_authenticates(password):
-        return password
+        return
 
     compose(
         runtime,
@@ -285,8 +283,7 @@ def reconcile_grafana_password(runtime: DockerRuntime, root: Path) -> str:
             "Grafana is healthy, but admin authentication still failed after resetting the "
             "persisted password. Check the Grafana container logs."
         )
-    print("Grafana admin password synchronized with the repository credential.")
-    return password
+    print("Grafana admin password updated. Only Grafana retains its password hash.")
 
 
 def start_grafana_installation(root: Path) -> int:
@@ -294,17 +291,43 @@ def start_grafana_installation(root: Path) -> int:
     runtime = DockerRuntime()
     runtime.keep_wsl_alive(root)
     runtime.require_compose()
-    compose(runtime, root, ("--profile", "grafana", "up", "-d", "grafana"))
+    bootstrap = {
+        "services": {
+            "grafana": {
+                "environment": {
+                    "GF_SECURITY_DISABLE_INITIAL_ADMIN_CREATION": "false",
+                    "GF_SECURITY_ADMIN_PASSWORD": secrets.token_urlsafe(32),
+                }
+            }
+        }
+    }
+    compose(
+        runtime,
+        root,
+        ("-f", "-", "--profile", "grafana", "up", "-d", "grafana"),
+        capture=True,
+        input_text=json.dumps(bootstrap),
+    )
     wait_for_endpoint("Grafana API", "http://127.0.0.1:3001/api/health")
-    password = reconcile_grafana_password(runtime, root)
     print("Grafana: http://127.0.0.1:3001/d/personal-copilot-value")
     print("Grafana username: admin")
-    print(f"Grafana password: {password}")
+    print("Use the grafana command in an interactive terminal to set or reset the admin password.")
     return 0
 
 
 def command_grafana(_arguments: argparse.Namespace) -> int:
-    return start_grafana_installation(install_root())
+    if not sys.stdin.isatty():
+        raise CopilotValueError("Run grafana in an interactive terminal to enter the admin password securely.")
+    password = getpass.getpass("Grafana admin password (at least 16 characters): ")
+    if len(password) < 16 or "\n" in password or "\r" in password:
+        raise CopilotValueError("Use at least 16 characters without line breaks for the Grafana password.")
+    confirmation = getpass.getpass("Confirm Grafana admin password: ")
+    if not secrets.compare_digest(password.encode("utf-8"), confirmation.encode("utf-8")):
+        raise CopilotValueError("Grafana passwords did not match.")
+    root = install_root()
+    start_grafana_installation(root)
+    reconcile_grafana_password(DockerRuntime(), root, password)
+    return 0
 
 
 def read_environment(path: Path) -> dict[str, str]:
@@ -627,7 +650,6 @@ def command_install(arguments: argparse.Namespace) -> int:
         npm_registry=getattr(arguments, "npm_registry", None),
         pip_index_url=getattr(arguments, "pip_index_url", None),
     )
-    grafana_password = existing_environment.get("GRAFANA_ADMIN_PASSWORD") or secrets.token_hex(24)
     repository_name = re.sub(r"[^a-z0-9_-]", "-", repository_root.name.lower()) or "repository"
     repository_hash = hashlib.sha256(str(repository_root).casefold().encode()).hexdigest()[:8]
     project_name = f"copilot-value-{repository_name}-{repository_hash}"
@@ -636,12 +658,11 @@ def command_install(arguments: argparse.Namespace) -> int:
         {
             "COMPOSE_PROJECT_NAME": project_name,
             "VSCODE_WORKSPACE_STORAGE_PATH": workspace_storage_mount,
-            "GRAFANA_ADMIN_PASSWORD": grafana_password,
             "SESSION_POLL_SECONDS": str(arguments.poll_seconds),
             **package_feeds,
         },
     )
-    (data_root / "grafana-admin-password.txt").write_text(grafana_password, encoding="utf-8")
+    (data_root / "grafana-admin-password.txt").unlink(missing_ok=True)
     (root / ".docker-install").write_text("docker\n", encoding="utf-8")
     if not getattr(arguments, "skip_vscode_settings", False):
         backup_root = data_root / "vscode-settings-backups"
@@ -665,7 +686,7 @@ def command_install(arguments: argparse.Namespace) -> int:
     print(f"Docker PyPI index: {package_feeds['PIP_INDEX_URL']}")
     print("Algalon: http://127.0.0.1:3000")
     print("Optional Grafana profile: http://127.0.0.1:3001")
-    print(f"Optional Grafana password: {grafana_password}")
+    print("Optional Grafana credentials are configured securely by the grafana command.")
     print("Copilot sessions from all local repositories are measured automatically.")
     return 0
 

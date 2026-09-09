@@ -166,6 +166,16 @@ class BackendAppTests(unittest.TestCase):
         self.assertEqual(spa.status_code, 200)
         self.assertIn("Algalon", spa.text)
 
+    def test_static_routes_never_read_outside_the_static_directory(self) -> None:
+        private_file = self.main.static_directory.parent / "private-static.txt"
+        private_file.write_text("private fixture content", encoding="utf-8")
+        self.addCleanup(private_file.unlink)
+        for path in ("/%2e%2e%2fprivate-static.txt", "/%2e%2e%5cprivate-static.txt"):
+            with self.subTest(path=path):
+                response = self.client.get(path)
+                self.assertNotIn("private fixture content", response.text)
+                self.assertIn(response.status_code, (200, 404))
+
 
 class BackendLifecycleTests(unittest.IsolatedAsyncioTestCase):
     async def test_indexing_loop_logs_failures_before_retrying(self) -> None:

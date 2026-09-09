@@ -167,6 +167,8 @@ Run commands from the installation repository root.
 
 `status` should report healthy default services and HTTP endpoints. `stop` removes containers but preserves SQLite, metrics, telemetry, prompt evidence, and session state in named volumes for all collected repositories. `restart` also restores optional Grafana when it was running before the restart.
 
+Run `grafana` in an interactive terminal to set or reset its admin password. The prompt hides input and requires at least 16 characters. The installer never saves or prints it; Grafana stores the password hash in its persistent volume. Upgrades remove older plaintext password copies from the installation environment and data directory without changing the password hash. After explicitly clearing Grafana data, run `grafana` again to choose a new password.
+
 `logs` shows the latest 200 lines by default. It accepts `victoria-metrics`, `collector`, `worker`, `app`, or `grafana` service filters, plus `--tail <lines|all>`, `--timestamps`, and `--follow`.
 
 The installer mounts the detected VS Code `User/workspaceStorage` directory into the app container read-only. The prompt explorer reads every direct chat log whose folder matches an OTel `gen_ai.conversation.id`/`copilot_chat.chat_session_id` found inside the current resource session, which makes prompt boundaries and credits agree with the Copilot UI. These local logs are not copied into the installation or sent through automatic telemetry export; SQLite stores the bounded prompt read model according to `promptStorage` settings. The complete OTel session remains the fallback when any matching direct log is unavailable.

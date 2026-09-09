@@ -124,6 +124,9 @@ class CopilotValueCliTests(unittest.TestCase):
                 json.dumps({"benchmark": {"acknowledgedAssumptions": False}}),
                 encoding="utf-8",
             )
+            (install / "data").mkdir()
+            (install / "data" / "grafana-admin-password.txt").write_text("legacy-fixture", encoding="utf-8")
+            (install / "docker" / ".env").write_text("GRAFANA_ADMIN_PASSWORD=legacy-fixture\n", encoding="utf-8")
             arguments = SimpleNamespace(
                 repository_root=str(repository),
                 skip_docker_check=True,
@@ -141,6 +144,8 @@ class CopilotValueCliTests(unittest.TestCase):
 
             environment = copilot_value.read_environment(install / "docker" / ".env")
             self.assertNotIn("REPOSITORY_MOUNT_PATH", environment)
+            self.assertNotIn("GRAFANA_ADMIN_PASSWORD", environment)
+            self.assertFalse((install / "data" / "grafana-admin-password.txt").exists())
             self.assertIn("VSCODE_WORKSPACE_STORAGE_PATH", environment)
             self.assertEqual(environment["NPM_REGISTRY"], copilot_value.PUBLIC_NPM_REGISTRY)
             self.assertEqual(environment["PIP_INDEX_URL"], copilot_value.PUBLIC_PYPI_INDEX)

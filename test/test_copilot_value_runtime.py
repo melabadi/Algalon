@@ -205,46 +205,66 @@ class HealthAndGrafanaTests(unittest.TestCase):
 
         runtime = Mock()
         root = Path("installation")
-        with patch.object(copilot_value, "read_environment", return_value={}):
-            with self.assertRaisesRegex(copilot_value.CopilotValueError, "password is missing"):
-                copilot_value.reconcile_grafana_password(runtime, root)
+        with patch.object(copilot_value, "grafana_authenticates", return_value=True):
+            self.assertIsNone(copilot_value.reconcile_grafana_password(runtime, root, "fixture-passphrase"))
 
         with (
-            patch.object(copilot_value, "read_environment", return_value={"GRAFANA_ADMIN_PASSWORD": "secret"}),
-            patch.object(copilot_value, "grafana_authenticates", return_value=True),
-        ):
-            self.assertEqual(copilot_value.reconcile_grafana_password(runtime, root), "secret")
-
-        with (
-            patch.object(copilot_value, "read_environment", return_value={"GRAFANA_ADMIN_PASSWORD": "secret"}),
             patch.object(copilot_value, "grafana_authenticates", side_effect=[False, True]),
             patch.object(copilot_value, "compose") as compose,
+            patch("builtins.print") as print_output,
         ):
-            self.assertEqual(copilot_value.reconcile_grafana_password(runtime, root), "secret")
+            self.assertIsNone(copilot_value.reconcile_grafana_password(runtime, root, "fixture-passphrase"))
         self.assertIn("reset-admin-password", compose.call_args.args[2])
+        self.assertEqual(compose.call_args.kwargs["input_text"], "fixture-passphrase\n")
+        self.assertNotIn("fixture-passphrase", str(print_output.call_args_list))
 
         with (
-            patch.object(copilot_value, "read_environment", return_value={"GRAFANA_ADMIN_PASSWORD": "secret"}),
             patch.object(copilot_value, "grafana_authenticates", return_value=False),
             patch.object(copilot_value, "compose"),
             self.assertRaisesRegex(copilot_value.CopilotValueError, "authentication still failed"),
         ):
-            copilot_value.reconcile_grafana_password(runtime, root)
+            copilot_value.reconcile_grafana_password(runtime, root, "fixture-passphrase")
 
-    def test_grafana_command_starts_profile_and_prints_credentials(self) -> None:
+    def test_grafana_command_prompts_without_printing_or_persisting_credentials(self) -> None:
         runtime = Mock()
         with (
             patch.object(copilot_value, "install_root", return_value=Path("installation")),
+            patch.object(copilot_value.sys.stdin, "isatty", return_value=True),
+            patch.object(copilot_value.getpass, "getpass", return_value="fixture-passphrase"),
             patch.object(copilot_value, "assert_docker_install"),
             patch.object(copilot_value, "DockerRuntime", return_value=runtime),
             patch.object(copilot_value, "compose") as compose,
             patch.object(copilot_value, "wait_for_endpoint"),
-            patch.object(copilot_value, "reconcile_grafana_password", return_value="secret"),
+            patch.object(copilot_value, "reconcile_grafana_password") as reconcile,
+            patch.object(copilot_value, "write_environment") as write_environment,
             patch("builtins.print") as print_output,
         ):
             self.assertEqual(copilot_value.command_grafana(argparse.Namespace()), 0)
         compose.assert_called_once()
-        self.assertIn(call("Grafana password: secret"), print_output.call_args_list)
+        self.assertEqual(compose.call_args.args[2][:2], ("-f", "-"))
+        environment = json.loads(compose.call_args.kwargs["input_text"])["services"]["grafana"]["environment"]
+        self.assertEqual(environment["GF_SECURITY_DISABLE_INITIAL_ADMIN_CREATION"], "false")
+        self.assertGreaterEqual(len(environment["GF_SECURITY_ADMIN_PASSWORD"]), 32)
+        reconcile.assert_called_once_with(runtime, Path("installation"), "fixture-passphrase")
+        write_environment.assert_not_called()
+        self.assertNotIn("fixture-passphrase", str(print_output.call_args_list))
+
+    def test_grafana_requires_interactive_strong_matching_passwords(self) -> None:
+        cases = (
+            (False, [], "interactive terminal"),
+            (True, ["short"], "at least 16"),
+            (True, ["fixture-passphrase", "different-passphrase"], "did not match"),
+        )
+        for interactive, answers, message in cases:
+            with (
+                self.subTest(interactive=interactive, message=message),
+                patch.object(copilot_value.sys.stdin, "isatty", return_value=interactive),
+                patch.object(copilot_value.getpass, "getpass", side_effect=answers),
+                patch.object(copilot_value, "start_grafana_installation") as start,
+                self.assertRaisesRegex(copilot_value.CopilotValueError, message),
+            ):
+                copilot_value.command_grafana(argparse.Namespace())
+            start.assert_not_called()
 
 
 class ConfigurationEdgeTests(unittest.TestCase):
@@ -424,6 +444,7 @@ class InstallationCommandTests(unittest.TestCase):
             self.assertTrue(start.call_args.kwargs["force_recreate"])
             start_grafana.assert_called_once_with(root.resolve())
             environment = copilot_value.read_environment(root / "docker" / ".env")
+            self.assertNotIn("GRAFANA_ADMIN_PASSWORD", environment)
             self.assertEqual(environment["NPM_REGISTRY"], "https://registry.example/npm/")
             self.assertEqual(environment["PIP_INDEX_URL"], "https://registry.example/pypi/simple")
 
