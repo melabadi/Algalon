@@ -1,11 +1,14 @@
 from __future__ import annotations
 
 from html.parser import HTMLParser
+import hashlib
 import json
 from pathlib import Path
+import shutil
 import struct
 import tempfile
 import unittest
+from unittest.mock import patch
 
 from scripts.build_pages_site import build
 
@@ -173,6 +176,32 @@ class PagesSiteTests(unittest.TestCase):
         ):
             self.assertIn(required, workflow)
 
+    def test_built_pages_refresh_the_stylesheet_when_its_content_changes(self) -> None:
+        original = (SITE / "styles.css").read_bytes()
+        changed = original + b"\n.quick-start { background: #17241e; }\n"
+        copytree = shutil.copytree
+
+        def copy_with_changed_styles(source: Path, destination: Path) -> None:
+            copytree(source, destination)
+            (destination / "styles.css").write_bytes(changed)
+
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            output = Path(temporary_directory) / "site"
+            build(output)
+            for content in (original, changed):
+                if content != original:
+                    with patch("scripts.build_pages_site.shutil.copytree", side_effect=copy_with_changed_styles):
+                        build(output)
+                digest = hashlib.sha256(content).hexdigest()[:12]
+                for name in ("index.html", "methodology.html"):
+                    parser = SiteParser()
+                    parser.feed((output / name).read_text(encoding="utf-8"))
+                    self.assertIn(f"styles.{digest}.css", parser.local_links)
+                    self.assertNotIn("styles.css", parser.local_links)
+                self.assertEqual((output / f"styles.{digest}.css").read_bytes(), content)
+                self.assertEqual(len(list(output.glob("styles.*.css"))), 1)
+                self.assertEqual((output / "styles.css").read_bytes(), content)
+
     def test_builds_the_complete_static_artifact(self) -> None:
         with tempfile.TemporaryDirectory() as temporary_directory:
             output = Path(temporary_directory) / "site"
@@ -189,6 +218,7 @@ class PagesSiteTests(unittest.TestCase):
                 "index.html",
                 "methodology.html",
                 "styles.css",
+                f"styles.{hashlib.sha256((SITE / 'styles.css').read_bytes()).hexdigest()[:12]}.css",
             }
             actual = {
                 path.relative_to(output).as_posix()
