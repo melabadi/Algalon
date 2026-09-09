@@ -26,6 +26,8 @@ class SiteParser(HTMLParser):
         self.image_alts: list[str | None] = []
         self.h1_count = 0
         self.main_count = 0
+        self.code_blocks: list[str] = []
+        self.in_code_block = False
 
     def handle_starttag(self, tag: str, attributes: list[tuple[str, str | None]]) -> None:
         values = dict(attributes)
@@ -51,6 +53,17 @@ class SiteParser(HTMLParser):
             self.h1_count += 1
         if tag == "main":
             self.main_count += 1
+        if tag == "pre":
+            self.code_blocks.append("")
+            self.in_code_block = True
+
+    def handle_endtag(self, tag: str) -> None:
+        if tag == "pre":
+            self.in_code_block = False
+
+    def handle_data(self, data: str) -> None:
+        if self.in_code_block:
+            self.code_blocks[-1] += data
 
 
 class PagesSiteTests(unittest.TestCase):
@@ -133,16 +146,26 @@ class PagesSiteTests(unittest.TestCase):
             "Local CSV export",
             "Windows PowerShell",
             "macOS and Linux",
-            "ZIP: fresh manual installation",
-            "Get-FileHash",
-            "shasum -a 256 --check",
-            "gh attestation verify",
+            "Python 3.11+",
+            "Docker with Compose",
+            "VS Code with GitHub Copilot",
+            "Start Docker",
+            "sign in to GitHub Copilot",
             "Content-Security-Policy",
             "https://github.com/melabadi/Algalon/releases/latest",
+            "https://github.com/melabadi/Algalon/blob/main/docs/local-deployment/README.md",
             "https://github.com/melabadi/Algalon/security/policy",
             "http://127.0.0.1:3000/",
         ):
             self.assertIn(required, self.html)
+
+    def test_getting_started_uses_only_single_python_commands(self) -> None:
+        self.assertEqual(self.parser.code_blocks, [
+            "python copilot-value-dashboard-<version>.pyz",
+            "python3 copilot-value-dashboard-<version>.pyz",
+        ])
+        self.assertIn('aria-label="Prerequisites"', self.html)
+        self.assertNotIn("Apache-2.0", self.html)
 
     def test_home_prioritizes_setup_and_links_to_detailed_methodology(self) -> None:
         self.assertLess(self.html.index('id="install"'), self.html.index('id="features"'))

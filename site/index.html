@@ -7,7 +7,7 @@
     <meta name="referrer" content="strict-origin-when-cross-origin">
     <meta name="description" content="Get started with Algalon: a local view of GitHub Copilot costs, sessions, and modeled value. Your evidence stays on your workstation.">
     <meta property="og:title" content="Algalon | Your Copilot work, in perspective">
-    <meta property="og:description" content="Understand AI costs, inspect your sessions, and compare modeled value. Download, verify, and get started locally.">
+    <meta property="og:description" content="Understand AI costs, inspect your sessions, and compare modeled value. Download and get started locally with one Python command.">
     <meta property="og:type" content="website">
     <meta property="og:url" content="https://melabadi.github.io/Algalon/">
     <meta property="og:image" content="https://melabadi.github.io/Algalon/assets/algalon-portfolio-desktop.png">
@@ -39,55 +39,31 @@
           <h1 id="intro-title">Algalon</h1>
           <p class="intro-lead">Your Copilot work, in perspective.</p>
           <p class="intro-copy">Understand AI costs, inspect your sessions, and compare modeled value. Your evidence stays on your workstation.</p>
-          <div class="intro-facts"><span>Windows, macOS &amp; Linux</span><span>No GitHub token</span><span>Apache-2.0</span></div>
+          <div class="intro-facts" aria-label="Prerequisites"><span>Python 3.11+</span><span>Docker with Compose</span><span>VS Code with GitHub Copilot</span></div>
         </div>
       </section>
 
       <section class="quick-start" id="install" aria-labelledby="install-title">
         <div class="section-inner">
           <div class="setup-heading">
-            <div><p class="eyebrow">Start here</p><h2 id="install-title">Get started</h2><p>Python 3.11+, Docker with Compose, and VS Code with GitHub Copilot.</p></div>
+            <div><p class="eyebrow">Start here</p><h2 id="install-title">Get started</h2><p>Works on Windows, macOS, and Linux. Start Docker and sign in to GitHub Copilot in VS Code before installing. No Node.js required.</p></div>
             <a class="button button-primary" href="https://github.com/melabadi/Algalon/releases/latest">Download the latest release</a>
           </div>
           <ol class="setup-steps">
-            <li><span class="step-number">01</span><div><h3>Download</h3><p>Choose the self-installing <strong>PYZ</strong> and its matching <strong>.sha256</strong> file. ZIP is also available.</p></div></li>
-            <li><span class="step-number">02</span><div><h3>Verify &amp; install</h3><p>Open a terminal in one repository directory. Verify the download, then run the installer with the commands below.</p></div></li>
+            <li><span class="step-number">01</span><div><h3>Download</h3><p>Download the self-installing <strong>PYZ</strong> into the repository folder you want to use for Algalon. No extraction needed.</p></div></li>
+            <li><span class="step-number">02</span><div><h3>Run</h3><p>Open a terminal in that folder and run the command for your platform below.</p></div></li>
             <li><span class="step-number">03</span><div><h3>Open Algalon</h3><p>Reload VS Code, start a new Copilot session, then open <a href="http://127.0.0.1:3000/">your local dashboard</a>.</p></div></li>
           </ol>
           <div class="setup-details">
             <details class="install-platform">
               <summary>Windows PowerShell</summary>
-              <p>Replace &lt;version&gt; with the downloaded release number. Run from your chosen repository directory.</p>
-              <pre><code>$release = "C:\Downloads\copilot-value-dashboard-&lt;version&gt;.pyz"
-$expected = (Get-Content "$release.sha256").Split()[0]
-$actual = (Get-FileHash $release -Algorithm SHA256).Hash
-if ($actual -ne $expected) { throw "Checksum mismatch" }
-python $release</code></pre>
+              <p>Replace &lt;version&gt; with the number in the downloaded filename.</p>
+              <pre><code>python copilot-value-dashboard-&lt;version&gt;.pyz</code></pre>
             </details>
             <details class="install-platform">
               <summary>macOS and Linux</summary>
-              <p>Replace &lt;version&gt; with the downloaded release number. Run from your chosen repository directory.</p>
-              <pre><code>release="$HOME/Downloads/copilot-value-dashboard-&lt;version&gt;.pyz"
-(cd "$HOME/Downloads" &amp;&amp;
-  if command -v sha256sum &gt;/dev/null 2&gt;&amp;1; then
-    sha256sum --check "$(basename "$release").sha256"
-  else
-    shasum -a 256 --check "$(basename "$release").sha256"
-  fi) &amp;&amp;
-python3 "$release"</code></pre>
-            </details>
-            <details class="install-platform">
-              <summary>Verify build provenance</summary>
-              <p>With GitHub CLI installed, verify either downloaded format before running or extracting it:</p>
-              <pre><code>gh attestation verify &lt;downloaded-file&gt; --repo melabadi/Algalon</code></pre>
-            </details>
-            <details class="install-platform">
-              <summary>ZIP: fresh manual installation</summary>
-              <p>Verify the ZIP checksum and provenance, then extract it into a new <code>.copilot-value</code> directory inside the chosen repository. Use the PYZ for upgrades to existing installations.</p>
-              <pre><code># Windows
-python .copilot-value/scripts/copilot_value.py install
-# macOS or Linux
-python3 .copilot-value/scripts/copilot_value.py install</code></pre>
+              <p>Replace &lt;version&gt; with the number in the downloaded filename.</p>
+              <pre><code>python3 copilot-value-dashboard-&lt;version&gt;.pyz</code></pre>
             </details>
           </div>
           <div class="setup-links"><a href="https://github.com/melabadi/Algalon/blob/main/docs/local-deployment/README.md">Full installation guide</a><a href="https://github.com/melabadi/Algalon/security/policy">Security &amp; verification</a><span>One installation covers all your local repositories.</span></div>
