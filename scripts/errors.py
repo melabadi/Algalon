@@ -1,0 +1,2 @@
+class CopilotValueError(RuntimeError):
+    pass

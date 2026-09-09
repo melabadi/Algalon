@@ -1,0 +1,77 @@
+{
+  "victoriaMetricsUrl": "http://127.0.0.1:8428",
+  "traceArchivePath": "data/otel/traces.json",
+  "measurementDelayDays": 0,
+  "loadedHourlyRateUsd": 92,
+  "monthlySeatCostUsd": 39,
+  "monthlyVariableCostUsd": 0,
+  "monthlyEnablementCostUsd": 0,
+  "acknowledgedAssumptions": true,
+  "codingToolPatterns": ["apply_patch", "create_file", "rename_symbol"],
+  "researchToolPatterns": ["search", "read", "fetch", "grep"],
+  "planningToolPatterns": ["manage_todo_list", "todo"],
+  "acceptedDecisionValues": ["accept", "accepted", "apply", "applied", "saved", "keep", "kept"],
+  "rejectedDecisionValues": ["reject", "rejected", "discard", "discarded"],
+  "benchmark": {
+    "acknowledgedAssumptions": true,
+    "manualTimeModelSource": "Mechanistic token/artifact test assumptions",
+    "capacityRealization": 0.5,
+    "typingWordsPerMinute": 52,
+    "charactersPerWord": 5,
+    "phaseToolPatterns": {
+      "planning": ["manage_todo_list", "todo"],
+      "research": ["search", "read", "fetch", "grep"],
+      "coding": ["apply_patch", "create_file", "rename_symbol"],
+      "validation": ["run_in_terminal", "get_errors", "playwright", "screenshot"]
+    },
+    "scenarios": {
+      "pessimistic": {
+        "planning": { "relevantTokenFraction": 0.1, "tokensPerMinute": 600, "interactionMinutesPerTool": 0.12 },
+        "research": { "relevantTokenFraction": 0.1, "tokensPerMinute": 600, "interactionMinutesPerTool": 0.12 },
+        "coding": { "manualEntryFraction": 0.25, "wordsPerMinute": 60 },
+        "validation": { "relevantTokenFraction": 0.1, "tokensPerMinute": 600, "interactionMinutesPerTool": 0.12 },
+        "unclassifiedManualMultiplier": 1
+      },
+      "base": {
+        "planning": { "relevantTokenFraction": 0.25, "tokensPerMinute": 400, "interactionMinutesPerTool": 0.25 },
+        "research": { "relevantTokenFraction": 0.25, "tokensPerMinute": 400, "interactionMinutesPerTool": 0.25 },
+        "coding": { "manualEntryFraction": 0.5, "wordsPerMinute": 40 },
+        "validation": { "relevantTokenFraction": 0.25, "tokensPerMinute": 400, "interactionMinutesPerTool": 0.25 },
+        "unclassifiedManualMultiplier": 1.25
+      },
+      "optimistic": {
+        "planning": { "relevantTokenFraction": 0.5, "tokensPerMinute": 250, "interactionMinutesPerTool": 0.5 },
+        "research": { "relevantTokenFraction": 0.5, "tokensPerMinute": 250, "interactionMinutesPerTool": 0.5 },
+        "coding": { "manualEntryFraction": 1, "wordsPerMinute": 25 },
+        "validation": { "relevantTokenFraction": 0.5, "tokensPerMinute": 250, "interactionMinutesPerTool": 0.5 },
+        "unclassifiedManualMultiplier": 1.5
+      }
+    }
+  },
+  "scenarios": {
+    "pessimistic": {
+      "minutesPerAcceptedEdit": 1,
+      "minutesPerAgentEditLoc": 0.1,
+      "minutesPerCodingToolCall": 1,
+      "minutesPerResearchToolCall": 1,
+      "minutesPerPlanningToolCall": 2,
+      "capacityRealization": 0.25
+    },
+    "base": {
+      "minutesPerAcceptedEdit": 3,
+      "minutesPerAgentEditLoc": 0.25,
+      "minutesPerCodingToolCall": 3,
+      "minutesPerResearchToolCall": 3,
+      "minutesPerPlanningToolCall": 5,
+      "capacityRealization": 0.5
+    },
+    "optimistic": {
+      "minutesPerAcceptedEdit": 6,
+      "minutesPerAgentEditLoc": 0.5,
+      "minutesPerCodingToolCall": 6,
+      "minutesPerResearchToolCall": 6,
+      "minutesPerPlanningToolCall": 10,
+      "capacityRealization": 0.75
+    }
+  }
+}

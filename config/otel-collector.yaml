@@ -1,0 +1,118 @@
+extensions:
+  health_check:
+    endpoint: ${env:OTEL_HEALTH_ENDPOINT}
+
+receivers:
+  otlp:
+    protocols:
+      grpc:
+        endpoint: ${env:OTEL_GRPC_ENDPOINT}
+      http:
+        endpoint: ${env:OTEL_HTTP_ENDPOINT}
+
+processors:
+  memory_limiter:
+    check_interval: 1s
+    limit_mib: 512
+    spike_limit_mib: 128
+  transform/privacy:
+    error_mode: propagate
+    trace_statements:
+      - context: resource
+        statements:
+          - 'delete_matching_keys(resource.attributes, "(?i)(^|\\.)(content|reasoning_content|request\\.options|description|descriptions|prompt|prompts|messages|instructions|system_instructions|definitions|arguments|result|command|file_path|file_name|repository|branch|commit_sha|remote_url|head_branch_name|head_commit_hash|hook_input|hook_output|mcp_server_name)(\\.|$)")'
+      - context: scope
+        statements:
+          - 'delete_matching_keys(scope.attributes, "(?i)(^|\\.)(content|reasoning_content|request\\.options|description|descriptions|prompt|prompts|messages|instructions|system_instructions|definitions|arguments|result|command|file_path|file_name|repository|branch|commit_sha|remote_url|head_branch_name|head_commit_hash|hook_input|hook_output|mcp_server_name)(\\.|$)")'
+      - context: span
+        statements:
+          - 'delete_matching_keys(span.attributes, "(?i)(^|\\.)(content|reasoning_content|request\\.options|description|descriptions|prompt|prompts|messages|instructions|system_instructions|definitions|arguments|result|command|file_path|file_name|repository|branch|commit_sha|remote_url|head_branch_name|head_commit_hash|hook_input|hook_output|mcp_server_name)(\\.|$)")'
+      - context: spanevent
+        statements:
+          - 'delete_matching_keys(spanevent.attributes, "(?i)(^|\\.)(content|description|descriptions|prompt|prompts|messages|instructions|system_instructions|definitions|arguments|result|command|file_path|file_name|repository|branch|commit_sha|remote_url|head_branch_name|head_commit_hash|hook_input|hook_output|mcp_server_name)(\\.|$)")'
+    metric_statements:
+      - context: resource
+        statements:
+          - 'delete_matching_keys(resource.attributes, "(?i)(^|\\.)(content|description|descriptions|prompt|prompts|messages|instructions|system_instructions|definitions|arguments|result|command|file_path|file_name|repository|branch|commit_sha|remote_url|head_branch_name|head_commit_hash|hook_input|hook_output|mcp_server_name)(\\.|$)")'
+      - context: scope
+        statements:
+          - 'delete_matching_keys(scope.attributes, "(?i)(^|\\.)(content|description|descriptions|prompt|prompts|messages|instructions|system_instructions|definitions|arguments|result|command|file_path|file_name|repository|branch|commit_sha|remote_url|head_branch_name|head_commit_hash|hook_input|hook_output|mcp_server_name)(\\.|$)")'
+      - context: datapoint
+        statements:
+          - 'delete_matching_keys(datapoint.attributes, "(?i)(^|\\.)(content|description|descriptions|prompt|prompts|messages|instructions|system_instructions|definitions|arguments|result|command|file_path|file_name|repository|branch|commit_sha|remote_url|head_branch_name|head_commit_hash|hook_input|hook_output|mcp_server_name)(\\.|$)")'
+    log_statements:
+      - context: resource
+        statements:
+          - 'delete_matching_keys(resource.attributes, "(?i)(^|\\.)(content|description|descriptions|prompt|prompts|messages|instructions|system_instructions|definitions|arguments|result|command|file_path|file_name|repository|branch|commit_sha|remote_url|head_branch_name|head_commit_hash|hook_input|hook_output|mcp_server_name)(\\.|$)")'
+      - context: scope
+        statements:
+          - 'delete_matching_keys(scope.attributes, "(?i)(^|\\.)(content|description|descriptions|prompt|prompts|messages|instructions|system_instructions|definitions|arguments|result|command|file_path|file_name|repository|branch|commit_sha|remote_url|head_branch_name|head_commit_hash|hook_input|hook_output|mcp_server_name)(\\.|$)")'
+      - context: log
+        statements:
+          - 'delete_matching_keys(log.attributes, "(?i)(^|\\.)(content|description|descriptions|prompt|prompts|messages|instructions|system_instructions|definitions|arguments|result|command|file_path|file_name|repository|branch|commit_sha|remote_url|head_branch_name|head_commit_hash|hook_input|hook_output|mcp_server_name)(\\.|$)")'
+          - set(log.body, "")
+  deltatocumulative:
+    max_stale: 15m
+    max_streams: 10000
+  batch:
+    send_batch_size: 1024
+    timeout: 5s
+
+connectors:
+  span_metrics/copilot:
+    namespace: copilot.trace
+    histogram:
+      disable: true
+    dimensions:
+      - name: gen_ai.operation.name
+      - name: gen_ai.tool.name
+      - name: success
+    exclude_dimensions: [collector.instance.id]
+    include_instrumentation_scope: [copilot-chat]
+    aggregation_temporality: AGGREGATION_TEMPORALITY_CUMULATIVE
+    metrics_flush_interval: 5s
+    metrics_expiration: 30m
+    resource_metrics_key_attributes:
+      - service.name
+      - service.version
+
+exporters:
+  otlp_http/victoriametrics:
+    metrics_endpoint: ${env:VICTORIA_METRICS_OTLP_ENDPOINT}
+    encoding: proto
+    compression: none
+  otlp_http/algalon:
+    traces_endpoint: http://app:8000/api/internal/otel/v1/traces
+    encoding: json
+    compression: none
+    retry_on_failure:
+      enabled: true
+      initial_interval: 1s
+      max_interval: 10s
+      max_elapsed_time: 0s
+    sending_queue:
+      enabled: true
+      queue_size: 10000
+  file/logs:
+    path: ${env:VALUE_DATA_DIR}/otel/logs.json
+    create_directory: true
+    rotation:
+      max_megabytes: 20
+      max_days: 30
+      max_backups: 30
+
+service:
+  extensions: [health_check]
+  pipelines:
+    traces:
+      receivers: [otlp]
+      processors: [memory_limiter, transform/privacy, batch]
+      exporters: [otlp_http/algalon, span_metrics/copilot]
+    metrics/storage:
+      receivers: [otlp, span_metrics/copilot]
+      processors: [memory_limiter, transform/privacy, deltatocumulative, batch]
+      exporters: [otlp_http/victoriametrics]
+    logs:
+      receivers: [otlp]
+      processors: [memory_limiter, transform/privacy, batch]
+      exporters: [file/logs]

@@ -1,0 +1,9 @@
+[extend]
+useDefault = true
+
+[[allowlists]]
+description = "Public browser localStorage key, not an authentication credential"
+condition = "AND"
+paths = ['''(^|/)web/src/features/calibration/model\.ts$''']
+regexTarget = "secret"
+regexes = ['''^algalon\.savedCalibrations\.v1$''']

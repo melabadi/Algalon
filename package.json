@@ -1,0 +1,31 @@
+{
+  "name": "personal-copilot-value-dashboard",
+  "version": "0.2.0",
+  "description": "Dockerized OpenTelemetry dashboard that measures GitHub Copilot ROI per session",
+  "private": true,
+  "type": "module",
+  "engines": {
+    "node": ">=22"
+  },
+  "scripts": {
+    "clean": "node --input-type=module -e \"import { rmSync } from 'node:fs'; rmSync('dist', { recursive: true, force: true });\"",
+    "build": "npm run clean --silent && tsc -p tsconfig.json",
+    "test": "npm run build --silent && node --test dist/test/*.test.js",
+    "test:coverage": "npm run test:coverage:worker && npm run test:coverage:installer && npm run test:coverage:backend && npm run test:coverage --prefix web",
+    "test:coverage:worker": "npm run build --silent && node --test --experimental-test-coverage --test-coverage-lines=90 --test-coverage-include=dist/src/*.js --test-coverage-include=dist/shared/*.js --test-coverage-exclude=dist/src/cli.js --test-coverage-exclude=dist/src/*-cli.js --test-coverage-exclude=dist/src/privacy-smoke.js dist/test/*.test.js",
+    "test:coverage:installer": "python -m coverage erase && python -m coverage run --source=scripts -m unittest discover -s test -p test_*.py && python -m coverage report --fail-under=90 --show-missing",
+    "test:coverage:backend": "python -m coverage erase && python -m coverage run --source=backend.app -m unittest discover -s backend/tests -p test_*.py && python -m coverage report --fail-under=90 --show-missing",
+    "calculate": "npm run build --silent && node dist/src/cli.js calculate",
+    "source-evidence": "npm run build --silent && node dist/src/source-delta-cli.js",
+    "calculate:fixture": "npm run build --silent && node dist/src/cli.js calculate --config test/fixtures/value-model.json --day 2026-08-01 --fixture test/fixtures/otel-snapshot.json --no-publish --no-write",
+    "smoke:privacy": "npm run build --silent && node dist/src/privacy-smoke.js"
+  },
+  "dependencies": {
+    "diff": "8.0.3",
+    "zod": "4.4.3"
+  },
+  "devDependencies": {
+    "@types/node": "22.19.19",
+    "typescript": "6.0.3"
+  }
+}

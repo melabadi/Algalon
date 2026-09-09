@@ -1,0 +1,115 @@
+name: ${COMPOSE_PROJECT_NAME}
+
+services:
+  victoria-metrics:
+    image: victoriametrics/victoria-metrics:v1.148.0
+    command:
+      - -storageDataPath=/storage
+      - -retentionPeriod=90d
+      - -httpListenAddr=:8428
+      - -usePromCompatibleNaming
+      - -search.latencyOffset=0s
+      - -dedup.minScrapeInterval=1ms
+    ports:
+      - 127.0.0.1:8428:8428
+    volumes:
+      - victoria-data:/storage
+    restart: unless-stopped
+
+  collector:
+    image: otel/opentelemetry-collector-contrib:0.157.0
+    user: "0:0"
+    command: ["--config=/etc/otelcol-contrib/config.yaml"]
+    environment:
+      VALUE_DATA_DIR: /data
+      OTEL_GRPC_ENDPOINT: 0.0.0.0:4317
+      OTEL_HTTP_ENDPOINT: 0.0.0.0:4318
+      OTEL_HEALTH_ENDPOINT: 0.0.0.0:13133
+      VICTORIA_METRICS_OTLP_ENDPOINT: http://victoria-metrics:8428/opentelemetry/v1/metrics
+    ports:
+      - 127.0.0.1:4317:4317
+      - 127.0.0.1:4318:4318
+      - 127.0.0.1:13133:13133
+    volumes:
+      - ../config/otel-collector.yaml:/etc/otelcol-contrib/config.yaml:ro
+      - telemetry-data:/data
+    depends_on:
+      - victoria-metrics
+    restart: unless-stopped
+
+  grafana:
+    image: grafana/grafana:13.1.2
+    profiles: ["grafana"]
+    environment:
+      GF_SERVER_HTTP_ADDR: 0.0.0.0
+      GF_SECURITY_ADMIN_USER: admin
+      GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_ADMIN_PASSWORD}
+      GF_USERS_ALLOW_SIGN_UP: "false"
+      GF_AUTH_ANONYMOUS_ENABLED: "false"
+      GF_ANALYTICS_REPORTING_ENABLED: "false"
+      GF_ANALYTICS_CHECK_FOR_UPDATES: "false"
+      GF_NEWS_NEWS_FEED_ENABLED: "false"
+      GF_PLUGINS_PREINSTALL_DISABLED: "true"
+      VALUE_GRAFANA_DASHBOARDS: /var/lib/grafana/dashboards
+      VICTORIA_METRICS_URL: http://victoria-metrics:8428
+    ports:
+      - 127.0.0.1:3001:3000
+    volumes:
+      - grafana-data:/var/lib/grafana
+      - ../config/grafana/provisioning:/etc/grafana/provisioning:ro
+      - ../config/grafana/dashboards:/var/lib/grafana/dashboards:ro
+    depends_on:
+      - victoria-metrics
+    restart: unless-stopped
+
+  worker:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile
+      args:
+        NPM_REGISTRY: ${NPM_REGISTRY:-https://registry.npmjs.org/}
+    environment:
+      COPILOT_VALUE_CONFIG: /app/config/value-model.local.json
+      COPILOT_VALUE_TRACE_ARCHIVE: /data/otel/traces.json
+      COPILOT_VALUE_OTEL_INBOX_URL: http://app:8000/api/internal/otel/records
+      COPILOT_VALUE_CHAT_LOG_ROOT: /vscode-workspace-storage
+      COPILOT_VALUE_OUTPUT_DIR: /data/value/sessions
+      COPILOT_VALUE_OTEL_URL: http://collector:4318
+      COPILOT_VALUE_VICTORIA_URL: http://victoria-metrics:8428
+      COPILOT_VALUE_POLL_SECONDS: ${SESSION_POLL_SECONDS:-5}
+    volumes:
+      - ../config/value-model.local.json:/app/config/value-model.local.json:ro
+      - telemetry-data:/data
+      - ${VSCODE_WORKSPACE_STORAGE_PATH}:/vscode-workspace-storage:ro
+    depends_on:
+      - app
+      - collector
+      - victoria-metrics
+    restart: unless-stopped
+
+  app:
+    build:
+      context: ..
+      dockerfile: docker/App.Dockerfile
+      args:
+        NPM_REGISTRY: ${NPM_REGISTRY:-https://registry.npmjs.org/}
+        PIP_INDEX_URL: ${PIP_INDEX_URL:-https://pypi.org/simple}
+    environment:
+      COPILOT_VALUE_DB: /data/app/value.db
+      COPILOT_VALUE_SESSION_DIR: /data/value/sessions
+      COPILOT_VALUE_TRACE_ARCHIVE: /data/otel/traces.json
+      COPILOT_VALUE_CHAT_LOG_ROOT: /vscode-workspace-storage
+      COPILOT_VALUE_CONFIG: /app/config/value-model.local.json
+      COPILOT_VALUE_STATIC_DIR: /app/static
+    ports:
+      - 127.0.0.1:3000:8000
+    volumes:
+      - ../config/value-model.local.json:/app/config/value-model.local.json:ro
+      - telemetry-data:/data
+      - ${VSCODE_WORKSPACE_STORAGE_PATH}:/vscode-workspace-storage:ro
+    restart: unless-stopped
+
+volumes:
+  grafana-data:
+  telemetry-data:
+  victoria-data:

@@ -1,0 +1,14 @@
+.git
+.github
+artifacts
+data
+docs
+node_modules
+**/node_modules
+web/dist
+**/__pycache__
+docker/.env
+config/value-model.local.json
+src
+test
+*.log

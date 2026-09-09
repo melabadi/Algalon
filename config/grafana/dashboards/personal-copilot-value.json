@@ -1,0 +1,500 @@
+{
+  "id": null,
+  "uid": "personal-copilot-value",
+  "title": "Algalon",
+  "description": "Local GitHub Copilot OTel output with configured cost and explicitly assumption-based time-saved and ROI scenarios.",
+  "tags": ["github-copilot", "value", "roi"],
+  "timezone": "browser",
+  "schemaVersion": 42,
+  "version": 3,
+  "refresh": "30s",
+  "time": {
+    "from": "now-30d",
+    "to": "now"
+  },
+  "links": [],
+  "templating": {
+    "list": [
+      {
+        "name": "experiment",
+        "label": "Copilot session",
+        "type": "query",
+        "datasource": { "type": "prometheus", "uid": "victoriametrics" },
+        "query": "label_values(copilot_value_experiment_info, experiment)",
+        "definition": "label_values(copilot_value_experiment_info, experiment)",
+        "refresh": 2,
+        "sort": 2,
+        "includeAll": false,
+        "multi": false
+      }
+    ]
+  },
+  "annotations": {
+    "list": []
+  },
+  "panels": [
+    {
+      "id": 1,
+      "type": "row",
+      "title": "Daily Allocation (Legacy ROI Disabled)",
+      "collapsed": false,
+      "gridPos": { "h": 1, "w": 24, "x": 0, "y": 0 },
+      "panels": []
+    },
+    {
+      "id": 2,
+      "type": "stat",
+      "title": "Allocated Cost",
+      "description": "Configured daily allocation of seat, optional variable, and enablement costs.",
+      "datasource": { "type": "prometheus", "uid": "victoriametrics" },
+      "gridPos": { "h": 5, "w": 6, "x": 0, "y": 1 },
+      "targets": [
+        { "refId": "A", "expr": "sum(sum_over_time(copilot_value_cash_cost_usd[$__range]))", "instant": true }
+      ],
+      "fieldConfig": { "defaults": { "unit": "currencyUSD", "decimals": 2 }, "overrides": [] },
+      "options": { "colorMode": "value", "graphMode": "area", "justifyMode": "auto", "textMode": "auto", "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false } }
+    },
+    {
+      "id": 3,
+      "type": "stat",
+      "title": "Derived Break-even Time",
+      "description": "Paid time that must be saved to recover cost: 60 × cost ÷ loaded hourly rate.",
+      "datasource": { "type": "prometheus", "uid": "victoriametrics" },
+      "gridPos": { "h": 5, "w": 6, "x": 6, "y": 1 },
+      "targets": [
+        { "refId": "A", "expr": "sum(sum_over_time(copilot_value_break_even_minutes[$__range]))", "instant": true }
+      ],
+      "fieldConfig": { "defaults": { "unit": "m", "decimals": 1 }, "overrides": [] },
+      "options": { "colorMode": "value", "graphMode": "area", "justifyMode": "auto", "textMode": "auto", "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false } }
+    },
+    {
+      "id": 4,
+      "type": "stat",
+      "title": "Legacy Daily Hours Saved",
+      "description": "Deprecated per-activity model. Disabled in local configuration; use an automatically measured Copilot session below.",
+      "datasource": { "type": "prometheus", "uid": "victoriametrics" },
+      "gridPos": { "h": 5, "w": 6, "x": 12, "y": 1 },
+      "targets": [
+        { "refId": "A", "expr": "sum(sum_over_time(copilot_value_estimated_hours_saved{scenario=\"base\"}[$__range]))", "instant": true }
+      ],
+      "fieldConfig": { "defaults": { "unit": "h", "decimals": 1, "noValue": "Not configured" }, "overrides": [] },
+      "options": { "colorMode": "value", "graphMode": "area", "justifyMode": "auto", "textMode": "auto", "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false } }
+    },
+    {
+      "id": 5,
+      "type": "stat",
+      "title": "Legacy Daily ROI",
+      "description": "Deprecated per-activity model. Disabled in local configuration; use OTel benchmark ROI below.",
+      "datasource": { "type": "prometheus", "uid": "victoriametrics" },
+      "gridPos": { "h": 5, "w": 6, "x": 18, "y": 1 },
+      "targets": [
+        { "refId": "A", "expr": "(sum(sum_over_time(copilot_value_estimated_benefit_usd{scenario=\"base\"}[$__range])) - sum(sum_over_time(copilot_value_cash_cost_usd[$__range]))) / sum(sum_over_time(copilot_value_cash_cost_usd[$__range]))", "instant": true }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percentunit",
+          "decimals": 1,
+          "noValue": "Not configured",
+          "thresholds": { "mode": "absolute", "steps": [ { "color": "red", "value": null }, { "color": "yellow", "value": 0 }, { "color": "green", "value": 1 } ] }
+        },
+        "overrides": []
+      },
+      "options": { "colorMode": "background", "graphMode": "none", "justifyMode": "auto", "textMode": "auto", "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false } }
+    },
+    {
+      "id": 6,
+      "type": "timeseries",
+      "title": "Legacy Daily Benefit Range",
+      "description": "Deprecated per-activity estimates retained only for historical compatibility.",
+      "datasource": { "type": "prometheus", "uid": "victoriametrics" },
+      "gridPos": { "h": 8, "w": 24, "x": 0, "y": 6 },
+      "targets": [
+        { "refId": "A", "expr": "copilot_value_estimated_benefit_usd", "legendFormat": "{{scenario}}" }
+      ],
+      "fieldConfig": { "defaults": { "unit": "currencyUSD", "custom": { "drawStyle": "line", "lineInterpolation": "smooth", "lineWidth": 2, "fillOpacity": 12, "showPoints": "auto" } }, "overrides": [] },
+      "options": { "legend": { "displayMode": "list", "placement": "bottom", "showLegend": true }, "tooltip": { "mode": "multi", "sort": "desc" } }
+    },
+    {
+      "id": 10,
+      "type": "row",
+      "title": "Observed Output and Usage",
+      "collapsed": false,
+      "gridPos": { "h": 1, "w": 24, "x": 0, "y": 14 },
+      "panels": []
+    },
+    {
+      "id": 11,
+      "type": "stat",
+      "title": "Observed Accepted Edit Decisions",
+      "datasource": { "type": "prometheus", "uid": "victoriametrics" },
+      "gridPos": { "h": 5, "w": 4, "x": 0, "y": 15 },
+      "targets": [
+        { "refId": "A", "expr": "sum(sum_over_time(copilot_value_activity_count{category=\"coding\",activity=\"accepted_edit\"}[$__range]))", "instant": true }
+      ],
+      "fieldConfig": { "defaults": { "unit": "short", "decimals": 0 }, "overrides": [] },
+      "options": { "colorMode": "value", "graphMode": "area", "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false } }
+    },
+    {
+      "id": 12,
+      "type": "stat",
+      "title": "Observed Agent/Edit LoC",
+      "description": "Lines added or deleted by agent_edit; kept separate from accepted-change counts.",
+      "datasource": { "type": "prometheus", "uid": "victoriametrics" },
+      "gridPos": { "h": 5, "w": 4, "x": 4, "y": 15 },
+      "targets": [
+        { "refId": "A", "expr": "sum(sum_over_time(copilot_value_loc_count{category=\"coding\",activity=\"agent_edit\"}[$__range]))", "instant": true }
+      ],
+      "fieldConfig": { "defaults": { "unit": "short", "decimals": 0 }, "overrides": [] },
+      "options": { "colorMode": "value", "graphMode": "area", "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false } }
+    },
+    {
+      "id": 17,
+      "type": "stat",
+      "title": "Coding Tool Executions (Proxy)",
+      "description": "Copilot-reported successful implementation-tool executions such as apply_patch. OTel does not prove that a patch mutated files. Used only when native accepted-edit/LoC evidence is lower, preventing overlap.",
+      "datasource": { "type": "prometheus", "uid": "victoriametrics" },
+      "gridPos": { "h": 5, "w": 4, "x": 8, "y": 15 },
+      "targets": [
+        { "refId": "A", "expr": "sum(sum_over_time(copilot_value_activity_count{category=\"coding_proxy\",activity=\"successful_tool_call\"}[$__range]))", "instant": true }
+      ],
+      "fieldConfig": { "defaults": { "unit": "short", "decimals": 0 }, "overrides": [] },
+      "options": { "colorMode": "value", "graphMode": "area", "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false } }
+    },
+    {
+      "id": 13,
+      "type": "stat",
+      "title": "Research Tool Calls (Proxy)",
+      "description": "Successful search/read/fetch-like tool calls; this does not prove that research was completed or correct.",
+      "datasource": { "type": "prometheus", "uid": "victoriametrics" },
+      "gridPos": { "h": 5, "w": 6, "x": 12, "y": 15 },
+      "targets": [
+        { "refId": "A", "expr": "sum(sum_over_time(copilot_value_activity_count{category=\"research_proxy\",activity=\"successful_tool_call\"}[$__range]))", "instant": true }
+      ],
+      "fieldConfig": { "defaults": { "unit": "short", "decimals": 0 }, "overrides": [] },
+      "options": { "colorMode": "value", "graphMode": "area", "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false } }
+    },
+    {
+      "id": 14,
+      "type": "stat",
+      "title": "Planning Tool Calls (Proxy)",
+      "description": "Successful todo/planning tool calls; chat mode itself is not exposed as a documented OTel attribute.",
+      "datasource": { "type": "prometheus", "uid": "victoriametrics" },
+      "gridPos": { "h": 5, "w": 6, "x": 18, "y": 15 },
+      "targets": [
+        { "refId": "A", "expr": "sum(sum_over_time(copilot_value_activity_count{category=\"planning_proxy\",activity=\"successful_tool_call\"}[$__range]))", "instant": true }
+      ],
+      "fieldConfig": { "defaults": { "unit": "short", "decimals": 0 }, "overrides": [] },
+      "options": { "colorMode": "value", "graphMode": "area", "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false } }
+    },
+    {
+      "id": 15,
+      "type": "timeseries",
+      "title": "Observed Activity Mix",
+      "datasource": { "type": "prometheus", "uid": "victoriametrics" },
+      "gridPos": { "h": 8, "w": 16, "x": 0, "y": 20 },
+      "targets": [
+        { "refId": "A", "expr": "sum(last_over_time(copilot_value_activity_count[1d])) by (category)", "legendFormat": "{{category}}" }
+      ],
+      "fieldConfig": { "defaults": { "unit": "short", "custom": { "drawStyle": "bars", "lineWidth": 1, "fillOpacity": 65, "stacking": { "mode": "normal", "group": "A" } } }, "overrides": [] },
+      "options": { "legend": { "displayMode": "table", "placement": "right", "showLegend": true }, "tooltip": { "mode": "multi", "sort": "desc" } }
+    },
+    {
+      "id": 16,
+      "type": "stat",
+      "title": "Observed Unmapped Activity",
+      "description": "Successful tools that do not match configured coding, research, or planning patterns; excluded from benefit estimates.",
+      "datasource": { "type": "prometheus", "uid": "victoriametrics" },
+      "gridPos": { "h": 8, "w": 8, "x": 16, "y": 20 },
+      "targets": [
+        { "refId": "A", "expr": "sum(sum_over_time(copilot_value_activity_count{category=\"unmapped\"}[$__range]))", "instant": true }
+      ],
+      "fieldConfig": { "defaults": { "unit": "short", "decimals": 0 }, "overrides": [] },
+      "options": { "colorMode": "value", "graphMode": "area", "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false } }
+    },
+    {
+      "id": 20,
+      "type": "row",
+      "title": "Local Operational Telemetry",
+      "collapsed": false,
+      "gridPos": { "h": 1, "w": 24, "x": 0, "y": 28 },
+      "panels": []
+    },
+    {
+      "id": 21,
+      "type": "timeseries",
+      "title": "Observed Sessions and Tool Calls",
+      "datasource": { "type": "prometheus", "uid": "victoriametrics" },
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 29 },
+      "targets": [
+        { "refId": "A", "expr": "sum(increase(copilot_chat_session_count[$__rate_interval]))", "legendFormat": "sessions" },
+        { "refId": "B", "expr": "sum(increase(copilot_chat_tool_call_count[$__rate_interval]))", "legendFormat": "tool calls" }
+      ],
+      "fieldConfig": { "defaults": { "unit": "short", "custom": { "drawStyle": "line", "lineInterpolation": "linear", "lineWidth": 2, "fillOpacity": 10 } }, "overrides": [] },
+      "options": { "legend": { "displayMode": "list", "placement": "bottom", "showLegend": true }, "tooltip": { "mode": "multi", "sort": "desc" } }
+    },
+    {
+      "id": 22,
+      "type": "timeseries",
+      "title": "Observed Tool Latency",
+      "datasource": { "type": "prometheus", "uid": "victoriametrics" },
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 29 },
+      "targets": [
+        { "refId": "A", "expr": "histogram_quantile(0.50, sum(rate(copilot_chat_tool_call_duration_bucket[$__rate_interval])) by (vmrange))", "legendFormat": "p50" },
+        { "refId": "B", "expr": "histogram_quantile(0.95, sum(rate(copilot_chat_tool_call_duration_bucket[$__rate_interval])) by (vmrange))", "legendFormat": "p95" }
+      ],
+      "fieldConfig": { "defaults": { "unit": "ms", "custom": { "drawStyle": "line", "lineInterpolation": "smooth", "lineWidth": 2, "fillOpacity": 8 } }, "overrides": [] },
+      "options": { "legend": { "displayMode": "list", "placement": "bottom", "showLegend": true }, "tooltip": { "mode": "multi", "sort": "desc" } }
+    },
+    {
+      "id": 30,
+      "type": "row",
+      "title": "Evidence and Assumptions",
+      "collapsed": false,
+      "gridPos": { "h": 1, "w": 24, "x": 0, "y": 37 },
+      "panels": []
+    },
+    {
+      "id": 31,
+      "type": "text",
+      "title": "How to Read This Dashboard",
+      "gridPos": { "h": 8, "w": 16, "x": 0, "y": 38 },
+      "options": {
+        "mode": "markdown",
+        "content": "**Observed** values come from session-scoped local OTel, with exact direct-turn credits/model/tokens when a matching VS Code log exists. The central worker discovers sessions across all local repositories and partitions elapsed time into planning, research, coding, validation, and unclassified phases. Parallel intervals are split, never double-counted, and phase allocations reconcile to elapsed time.\n\nStandard Copilot OTel does not expose a trustworthy repository root or retained-source delta. Central sessions therefore report **Telemetry only**, set retained source to zero, and create no positive coding benefit. Planning, research, validation, and unclassified phases continue to use their explicit token, tool-runtime, and interaction assumptions. Repository source is never borrowed from the installation location."
+      }
+    },
+    {
+      "id": 32,
+      "type": "stat",
+      "title": "OTel Calculation Age",
+      "description": "Age of the latest local OTel value calculation.",
+      "datasource": { "type": "prometheus", "uid": "victoriametrics" },
+      "gridPos": { "h": 8, "w": 8, "x": 16, "y": 38 },
+      "targets": [
+        { "refId": "A", "expr": "time() - max(last_over_time(copilot_value_calculation_timestamp_seconds[$__range]))", "instant": true }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s",
+          "decimals": 0,
+          "thresholds": { "mode": "absolute", "steps": [ { "color": "green", "value": null }, { "color": "yellow", "value": 345600 }, { "color": "red", "value": 604800 } ] }
+        },
+        "overrides": []
+      },
+      "options": { "colorMode": "background", "graphMode": "none", "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false } }
+    },
+    {
+      "id": 40,
+      "type": "row",
+      "title": "Measured OTel Session",
+      "collapsed": false,
+      "gridPos": { "h": 1, "w": 24, "x": 0, "y": 46 },
+      "panels": []
+    },
+    {
+      "id": 41,
+      "type": "stat",
+      "title": "Session Duration",
+      "datasource": { "type": "prometheus", "uid": "victoriametrics" },
+      "gridPos": { "h": 6, "w": 6, "x": 0, "y": 47 },
+      "targets": [
+        { "refId": "A", "expr": "last_over_time(copilot_value_experiment_duration_seconds{experiment=\"$experiment\"}[$__range])", "instant": true }
+      ],
+      "fieldConfig": { "defaults": { "unit": "s", "decimals": 0, "noValue": "No completed session" }, "overrides": [] },
+      "options": { "colorMode": "value", "graphMode": "area", "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false } }
+    },
+    {
+      "id": 42,
+      "type": "stat",
+      "title": "Observed AI Credit Cost",
+      "description": "Usage value derived directly from OTel copilot_usage_nano_aiu. Included allowance and overage use the same published credit value.",
+      "datasource": { "type": "prometheus", "uid": "victoriametrics" },
+      "gridPos": { "h": 6, "w": 6, "x": 6, "y": 47 },
+      "targets": [
+        { "refId": "A", "expr": "last_over_time(copilot_value_experiment_ai_cost_usd{experiment=\"$experiment\"}[$__range])", "instant": true }
+      ],
+      "fieldConfig": { "defaults": { "unit": "currencyUSD", "decimals": 2, "noValue": "No completed session" }, "overrides": [] },
+      "options": { "colorMode": "value", "graphMode": "area", "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false } }
+    },
+    {
+      "id": 43,
+      "type": "stat",
+      "title": "Modeled Minutes Saved (Base)",
+      "description": "Mechanistic manual phase time minus observed AI phase time. Central sessions use zero retained source, so coding tools alone do not create benefit.",
+      "datasource": { "type": "prometheus", "uid": "victoriametrics" },
+      "gridPos": { "h": 6, "w": 6, "x": 12, "y": 47 },
+      "targets": [
+        { "refId": "A", "expr": "last_over_time(copilot_value_experiment_estimated_minutes_saved{experiment=\"$experiment\",scenario=\"base\"}[$__range])", "instant": true }
+      ],
+      "fieldConfig": { "defaults": { "unit": "m", "decimals": 1, "noValue": "No completed session" }, "overrides": [] },
+      "options": { "colorMode": "value", "graphMode": "area", "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false } }
+    },
+    {
+      "id": 44,
+      "type": "stat",
+      "title": "Estimated ROI (Base)",
+      "description": "(Estimated realized labor benefit − observed AI-credit usage value) ÷ observed AI-credit usage value.",
+      "datasource": { "type": "prometheus", "uid": "victoriametrics" },
+      "gridPos": { "h": 6, "w": 6, "x": 18, "y": 47 },
+      "targets": [
+        { "refId": "A", "expr": "last_over_time(copilot_value_experiment_estimated_roi_ratio{experiment=\"$experiment\",scenario=\"base\"}[$__range])", "instant": true }
+      ],
+      "fieldConfig": { "defaults": { "unit": "percentunit", "decimals": 1, "noValue": "No completed session", "thresholds": { "mode": "absolute", "steps": [ { "color": "red", "value": null }, { "color": "yellow", "value": 0 }, { "color": "green", "value": 1 } ] } }, "overrides": [] },
+      "options": { "colorMode": "background", "graphMode": "none", "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false } }
+    },
+    {
+      "id": 45,
+      "type": "stat",
+      "title": "Observed AI Credits",
+      "datasource": { "type": "prometheus", "uid": "victoriametrics" },
+      "gridPos": { "h": 6, "w": 6, "x": 0, "y": 53 },
+      "targets": [
+        { "refId": "A", "expr": "last_over_time(copilot_value_experiment_ai_credits{experiment=\"$experiment\"}[$__range])", "instant": true }
+      ],
+      "fieldConfig": { "defaults": { "unit": "short", "decimals": 1, "noValue": "No completed session" }, "overrides": [] },
+      "options": { "colorMode": "value", "graphMode": "area", "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false } }
+    },
+    {
+      "id": 46,
+      "type": "stat",
+      "title": "Observed Cache-read Tokens",
+      "datasource": { "type": "prometheus", "uid": "victoriametrics" },
+      "gridPos": { "h": 6, "w": 6, "x": 6, "y": 53 },
+      "targets": [
+        { "refId": "A", "expr": "last_over_time(copilot_value_experiment_token_count{experiment=\"$experiment\",token_type=\"cache_read\"}[$__range])", "instant": true }
+      ],
+      "fieldConfig": { "defaults": { "unit": "short", "decimals": 0, "noValue": "No completed session" }, "overrides": [] },
+      "options": { "colorMode": "value", "graphMode": "area", "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false } }
+    },
+    {
+      "id": 47,
+      "type": "stat",
+      "title": "Matched-source Typing Equivalent",
+      "description": "Exact matched retained characters ÷ configured characters per word ÷ typing WPM. Central telemetry-only sessions report zero.",
+      "datasource": { "type": "prometheus", "uid": "victoriametrics" },
+      "gridPos": { "h": 6, "w": 6, "x": 12, "y": 53 },
+      "targets": [
+        { "refId": "A", "expr": "last_over_time(copilot_value_experiment_typing_equivalent_minutes{experiment=\"$experiment\"}[$__range])", "instant": true }
+      ],
+      "fieldConfig": { "defaults": { "unit": "m", "decimals": 1, "noValue": "No modeled session" }, "overrides": [] },
+      "options": { "colorMode": "value", "graphMode": "area", "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false } }
+    },
+    {
+      "id": 48,
+      "type": "stat",
+      "title": "Break-even Manual Baseline",
+      "description": "Manual task duration required for estimated realized labor value to recover observed AI-credit usage value.",
+      "datasource": { "type": "prometheus", "uid": "victoriametrics" },
+      "gridPos": { "h": 6, "w": 6, "x": 18, "y": 53 },
+      "targets": [
+        { "refId": "A", "expr": "last_over_time(copilot_value_experiment_break_even_manual_minutes{experiment=\"$experiment\",scenario=\"base\"}[$__range])", "instant": true }
+      ],
+      "fieldConfig": { "defaults": { "unit": "m", "decimals": 1, "noValue": "No completed session" }, "overrides": [] },
+      "options": { "colorMode": "value", "graphMode": "area", "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false } }
+    },
+    {
+      "id": 49,
+      "type": "bargauge",
+      "title": "Measured Engaged Time by Phase",
+      "description": "OTel active intervals with non-span elapsed time allocated proportionally. Phase values sum to session duration.",
+      "datasource": { "type": "prometheus", "uid": "victoriametrics" },
+      "gridPos": { "h": 9, "w": 12, "x": 0, "y": 59 },
+      "targets": [
+        { "refId": "A", "expr": "last_over_time(copilot_value_experiment_phase_seconds{experiment=\"$experiment\",time_type=\"allocated_engaged\"}[$__range]) / 60", "legendFormat": "{{phase}}", "instant": true }
+      ],
+      "fieldConfig": { "defaults": { "unit": "m", "decimals": 2 }, "overrides": [] },
+      "options": { "displayMode": "gradient", "orientation": "horizontal", "showUnfilled": true, "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false } }
+    },
+    {
+      "id": 50,
+      "type": "bargauge",
+      "title": "Estimated Minutes Saved by Phase (Base)",
+      "description": "Token/tool-runtime manual estimates minus observed AI phase time. Coding uses matched retained source and receives zero positive benefit when it is unavailable.",
+      "datasource": { "type": "prometheus", "uid": "victoriametrics" },
+      "gridPos": { "h": 9, "w": 12, "x": 12, "y": 59 },
+      "targets": [
+        { "refId": "A", "expr": "last_over_time(copilot_value_experiment_phase_estimated_minutes_saved{experiment=\"$experiment\",scenario=\"base\"}[$__range])", "legendFormat": "{{phase}}", "instant": true }
+      ],
+      "fieldConfig": { "defaults": { "unit": "m", "decimals": 2 }, "overrides": [] },
+      "options": { "displayMode": "gradient", "orientation": "horizontal", "showUnfilled": true, "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false } }
+    },
+    {
+      "id": 51,
+      "type": "bargauge",
+      "title": "Estimated Manual Time by Phase (Base)",
+      "description": "Manual-time estimate produced by each phase's token/artifact calibration.",
+      "datasource": { "type": "prometheus", "uid": "victoriametrics" },
+      "gridPos": { "h": 9, "w": 12, "x": 0, "y": 68 },
+      "targets": [
+        { "refId": "A", "expr": "last_over_time(copilot_value_experiment_phase_estimated_manual_minutes{experiment=\"$experiment\",scenario=\"base\"}[$__range])", "legendFormat": "{{phase}}", "instant": true }
+      ],
+      "fieldConfig": { "defaults": { "unit": "m", "decimals": 2 }, "overrides": [] },
+      "options": { "displayMode": "gradient", "orientation": "horizontal", "showUnfilled": true, "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false } }
+    },
+    {
+      "id": 52,
+      "type": "bargauge",
+      "title": "Observed Uncached Input Tokens by Phase",
+      "description": "Research uses the configured relevant fraction. Validation input context is shown for audit but excluded from manual time to avoid repeated-context inflation.",
+      "datasource": { "type": "prometheus", "uid": "victoriametrics" },
+      "gridPos": { "h": 9, "w": 12, "x": 12, "y": 68 },
+      "targets": [
+        { "refId": "A", "expr": "last_over_time(copilot_value_experiment_phase_token_count{experiment=\"$experiment\",token_type=\"uncached_input\"}[$__range])", "legendFormat": "{{phase}}", "instant": true }
+      ],
+      "fieldConfig": { "defaults": { "unit": "short", "decimals": 0 }, "overrides": [] },
+      "options": { "displayMode": "gradient", "orientation": "horizontal", "showUnfilled": true, "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false } }
+    },
+    {
+      "id": 53,
+      "type": "stat",
+      "title": "Retained Source Characters",
+      "description": "Matched retained characters for this session. Central telemetry-only sessions intentionally report zero.",
+      "datasource": { "type": "prometheus", "uid": "victoriametrics" },
+      "gridPos": { "h": 6, "w": 6, "x": 0, "y": 77 },
+      "targets": [
+        { "refId": "A", "expr": "last_over_time(copilot_value_experiment_retained_source_characters{experiment=\"$experiment\"}[$__range])", "instant": true }
+      ],
+      "fieldConfig": { "defaults": { "unit": "short", "decimals": 0, "noValue": "No session" }, "overrides": [] },
+      "options": { "colorMode": "value", "graphMode": "area", "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false } }
+    },
+    {
+      "id": 54,
+      "type": "stat",
+      "title": "Coding Tool Calls",
+      "description": "Session-scoped coding tool spans. These are activity evidence and do not create coding benefit without retained source.",
+      "datasource": { "type": "prometheus", "uid": "victoriametrics" },
+      "gridPos": { "h": 6, "w": 6, "x": 6, "y": 77 },
+      "targets": [
+        { "refId": "A", "expr": "last_over_time(copilot_value_experiment_phase_tool_calls{experiment=\"$experiment\",phase=\"coding\"}[$__range])", "instant": true }
+      ],
+      "fieldConfig": { "defaults": { "unit": "short", "decimals": 0, "noValue": "No session" }, "overrides": [] },
+      "options": { "colorMode": "value", "graphMode": "area", "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false } }
+    },
+    {
+      "id": 55,
+      "type": "bargauge",
+      "title": "Observed Tool Calls by Phase",
+      "description": "Session-scoped tool spans classified into planning, research, coding, validation, and unclassified phases.",
+      "datasource": { "type": "prometheus", "uid": "victoriametrics" },
+      "gridPos": { "h": 6, "w": 6, "x": 12, "y": 77 },
+      "targets": [
+        { "refId": "A", "expr": "last_over_time(copilot_value_experiment_phase_tool_calls{experiment=\"$experiment\"}[$__range])", "legendFormat": "{{phase}}", "instant": true }
+      ],
+      "fieldConfig": { "defaults": { "unit": "short", "decimals": 0, "noValue": "No session" }, "overrides": [] },
+      "options": { "displayMode": "gradient", "orientation": "horizontal", "showUnfilled": true, "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false } }
+    },
+    {
+      "id": 56,
+      "type": "stat",
+      "title": "OTel Source Evidence",
+      "description": "Telemetry only means source attribution is unavailable and coding benefit is conservatively zero. Source + OTel requires a matched source producer.",
+      "datasource": { "type": "prometheus", "uid": "victoriametrics" },
+      "gridPos": { "h": 6, "w": 6, "x": 18, "y": 77 },
+      "targets": [
+        { "refId": "A", "expr": "last_over_time(copilot_value_experiment_source_evidence_complete{experiment=\"$experiment\"}[$__range])", "instant": true }
+      ],
+      "fieldConfig": { "defaults": { "unit": "short", "decimals": 0, "noValue": "No session", "mappings": [ { "type": "value", "options": { "0": { "text": "Telemetry only", "color": "blue", "index": 0 }, "1": { "text": "Source + OTel", "color": "green", "index": 1 } } } ], "thresholds": { "mode": "absolute", "steps": [ { "color": "blue", "value": null }, { "color": "green", "value": 1 } ] } }, "overrides": [] },
+      "options": { "colorMode": "background", "graphMode": "none", "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false } }
+    }
+  ]
+}

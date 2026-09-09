@@ -1,0 +1,7 @@
+[
+  { "name": "overlap", "intervals": [[0, 10], [5, 20]], "expected": 20 },
+  { "name": "touching", "intervals": [[0, 5], [5, 10], [20, 25]], "expected": 15 },
+  { "name": "nested", "intervals": [[0, 30], [5, 10], [12, 18]], "expected": 30 },
+  { "name": "invalid ignored", "intervals": [[0, 0], [10, 5], [20, 25]], "expected": 5 },
+  { "name": "empty", "intervals": [], "expected": 0 }
+]

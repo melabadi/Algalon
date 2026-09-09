@@ -1,0 +1,203 @@
+{
+  "victoriaMetricsUrl": "http://127.0.0.1:8428",
+  "otelHttpEndpoint": "http://127.0.0.1:4318",
+  "traceArchivePath": "data/otel/traces.json",
+  "promptStorage": {
+    "enabled": true,
+    "retentionDays": 30
+  },
+  "measurementDelayDays": 0,
+  "loadedHourlyRateUsd": 92,
+  "monthlySeatCostUsd": 39,
+  "monthlyVariableCostUsd": 0,
+  "monthlyEnablementCostUsd": 0,
+  "acknowledgedAssumptions": false,
+  "codingToolPatterns": ["apply_patch", "create_file", "create_directory", "replace_string_in_file", "edit_notebook_file", "rename"],
+  "researchToolPatterns": ["search", "read", "fetch", "grep", "semantic", "reference", "documentation", "usages"],
+  "planningToolPatterns": ["manage_todo_list", "todo", "questions"],
+  "acceptedDecisionValues": ["accept", "accepted", "apply", "applied", "saved", "keep", "kept"],
+  "rejectedDecisionValues": ["reject", "rejected", "discard", "discarded"],
+  "benchmark": {
+    "acknowledgedAssumptions": false,
+    "manualTimeModelSource": "Mechanistic token/artifact assumptions; calibrate with local paired tasks",
+    "capacityRealization": 0.5,
+    "capacityRealizationBand": [0.25, 0.5, 0.75],
+    "maxIdleGapSeconds": 300,
+    "typingWordsPerMinute": 52,
+    "charactersPerWord": 5,
+    "calibrationSources": [
+      {
+        "title": "The Impact of AI on Developer Productivity: Evidence from GitHub Copilot",
+        "publisher": "arXiv",
+        "publishedAt": "2023-02-13",
+        "url": "https://arxiv.org/abs/2302.06590",
+        "evidenceClass": "controlled_experiment",
+        "appliesTo": ["scenario envelope"],
+        "supportLevels": { "scenario envelope": "context" },
+        "finding": "In a controlled JavaScript HTTP-server task, participants with Copilot completed the task 55.8% faster than the control group.",
+        "limitation": "One bounded task does not directly calibrate phase token relevance, review speed, tool overhead, capacity realization, or local ROI."
+      },
+      {
+        "title": "2024 Work Trend Index Annual Report: AI at Work Is Here. Now Comes the Hard Part",
+        "publisher": "Microsoft and LinkedIn",
+        "publishedAt": "2024-05-08",
+        "url": "https://www.microsoft.com/en-us/worklab/work-trend-index/2024-ai-at-work-is-here-now-comes-the-hard-part",
+        "evidenceClass": "survey_context",
+        "appliesTo": ["adoption context", "capacity-realization research question"],
+        "supportLevels": {
+          "adoption context": "context",
+          "capacity-realization research question": "context"
+        },
+        "finding": "In the global survey, 90% of AI users said AI helps them save time; the report combines responses from 31,000 people across 31 countries with labor and Microsoft 365 signals.",
+        "limitation": "Self-reported, cross-role survey evidence supplies context, not a causal software-development effect or a numeric model constant."
+      },
+      {
+        "title": "Measuring the Impact of Early-2025 AI on Experienced Open-Source Developer Productivity",
+        "publisher": "METR",
+        "publishedAt": "2025-07-12",
+        "url": "https://arxiv.org/abs/2507.09089",
+        "evidenceClass": "controlled_experiment",
+        "appliesTo": ["scenario envelope"],
+        "supportLevels": { "scenario envelope": "context" },
+        "finding": "In a randomized trial, 16 experienced open-source developers completed 246 tasks in mature repositories; allowing early-2025 AI tools increased completion time by 19%.",
+        "limitation": "The developers, repositories, and primarily Cursor/Claude toolchain differ from local Copilot sessions. The result guards against an always-positive prior but does not calibrate phase constants."
+      },
+      {
+        "title": "How Many Words Do We Read per Minute? A Review and Meta-Analysis of Reading Rate",
+        "publisher": "Journal of Memory and Language",
+        "publishedAt": "2019-12-01",
+        "url": "https://doi.org/10.1016/j.jml.2019.104047",
+        "evidenceClass": "literature_benchmark",
+        "appliesTo": ["human review rate"],
+        "supportLevels": { "human review rate": "proxy" },
+        "finding": "Across 190 studies and 18,573 participants, average adult English silent reading was 238 words/minute for non-fiction; most adults were between 175 and 300 words/minute.",
+        "limitation": "Prose words are not model tokens, and ordinary non-fiction reading is not technical review of plans, research, or validation output. Use this only to challenge rate plausibility pending local timed review."
+      },
+      {
+        "title": "Observations on Typing from 136 Million Keystrokes",
+        "publisher": "ACM CHI",
+        "publishedAt": "2018-04-21",
+        "url": "https://doi.org/10.1145/3173574.3174220",
+        "evidenceClass": "literature_benchmark",
+        "appliesTo": ["manual source-entry rate", "audit typing rate", "characters per word"],
+        "supportLevels": {
+          "manual source-entry rate": "proxy",
+          "audit typing rate": "proxy",
+          "characters per word": "direct"
+        },
+        "finding": "The online transcription study included 168,000 volunteers and reported 51.56 WPM (SD 20.20), defining one standardized word as five characters.",
+        "limitation": "Sentence transcription by self-selected volunteers is not source-code authoring. The rounded 52 WPM mean anchors only the secondary audit typing metric; it directly supports the five-character WPM convention and only contextualizes the 25/40/60 WPM coding range."
+      },
+      {
+        "title": "Software Developers, Quality Assurance Analysts, and Testers",
+        "publisher": "U.S. Bureau of Labor Statistics",
+        "publishedAt": "2025-08-28",
+        "url": "https://www.bls.gov/ooh/computer-and-information-technology/software-developers.htm",
+        "evidenceClass": "official_statistic",
+        "appliesTo": ["loaded labor rate"],
+        "supportLevels": { "loaded labor rate": "proxy" },
+        "finding": "The U.S. median annual wage for software developers was $133,080 in May 2024.",
+        "limitation": "A national median wage is not a fully loaded hourly rate and does not reflect local role mix, seniority, geography, utilization, or overhead. Local finance remains authoritative."
+      },
+      {
+        "title": "Employer Costs for Employee Compensation - March 2026",
+        "publisher": "U.S. Bureau of Labor Statistics",
+        "publishedAt": "2026-06-12",
+        "url": "https://www.bls.gov/news.release/ecec.nr0.htm",
+        "evidenceClass": "official_statistic",
+        "appliesTo": ["loaded labor rate"],
+        "supportLevels": { "loaded labor rate": "proxy" },
+        "finding": "For private-industry workers in March 2026, wages averaged $32.60/hour and benefits $14.01/hour; benefits were 30.1% of total employer compensation.",
+        "limitation": "This covers all private-industry workers, not software developers, and excludes organization-specific overhead. Combined with the occupational wage source, it produces the rounded $92/hour example proxy, not an organization-specific loaded rate."
+      },
+      {
+        "title": "The Effects of Generative AI on High-Skilled Work: Evidence from Three Field Experiments with Software Developers",
+        "publisher": "Management Science",
+        "publishedAt": "2026-02-27",
+        "url": "https://doi.org/10.1287/mnsc.2025.00535",
+        "evidenceClass": "controlled_experiment",
+        "appliesTo": ["scenario envelope"],
+        "supportLevels": { "scenario envelope": "context" },
+        "finding": "Across randomized workplace trials at Microsoft, Accenture, and a Fortune 100 company, 4,867 developers with AI access completed 26.08% more tasks in the pooled analysis (standard error 10.3%); effects varied by experiment and were larger for less-experienced developers.",
+        "limitation": "Completed-task throughput is not elapsed-time reduction, phase manual time, or realized economic capacity. The noisy, heterogeneous field effect bounds overall plausibility but does not calibrate any mechanistic constant."
+      },
+      {
+        "title": "Reading Between the Lines: Modeling User Behavior and Costs in AI-Assisted Programming",
+        "publisher": "ACM CHI",
+        "publishedAt": "2024-05-11",
+        "url": "https://doi.org/10.1145/3613904.3641936",
+        "evidenceClass": "literature_benchmark",
+        "appliesTo": ["tool interaction overhead"],
+        "supportLevels": { "tool interaction overhead": "proxy" },
+        "finding": "In a lab study of 21 programmers, including post-acceptance work increased mean total verification from 3.96 to 7.03 seconds for initially verified suggestions and from 3.25 to 15.21 seconds (median 6.48) for deferred suggestions; explicit waiting added 2.5 seconds when it occurred.",
+        "limitation": "The 7.03-second mean is rounded to the 0.12-minute lower setting and the 15.21-second mean aligns with the 0.25-minute base setting. Suggestion verification is not one general tool execution, and the study does not establish the 0.50-minute upper setting. Local timing remains authoritative."
+      },
+      {
+        "title": "40 Years of Designing Code Comprehension Experiments: A Systematic Mapping Study",
+        "publisher": "ACM Computing Surveys",
+        "publishedAt": "2023-11-09",
+        "url": "https://doi.org/10.1145/3626522",
+        "evidenceClass": "literature_benchmark",
+        "appliesTo": ["human review rate"],
+        "supportLevels": { "human review rate": "context" },
+        "finding": "The systematic mapping covers 95 source-code comprehension experiments published from 1979 through 2019 and documents substantial diversity in tasks, participants, measures, and designs.",
+        "limitation": "The study does not report a transferable tokens-per-minute benchmark and highlights comparability problems. It supports local timed technical review rather than a universal review-rate constant."
+      }
+    ],
+    "phaseToolPatterns": {
+      "planning": ["manage_todo_list", "todo", "ask_questions", "questions"],
+      "research": ["search", "read", "fetch", "grep", "semantic", "reference", "documentation", "list_dir", "view_image", "tool_search", "usages"],
+      "coding": ["apply_patch", "create_file", "create_directory", "replace_string_in_file", "edit_notebook_file", "rename"],
+      "validation": ["run_in_terminal", "get_terminal_output", "terminal", "get_errors", "test", "playwright", "screenshot", "click", "navigate", "open_browser", "run_task", "task_output"]
+    },
+    "scenarios": {
+      "pessimistic": {
+        "planning": { "relevantTokenFraction": 0.1, "tokensPerMinute": 600, "interactionMinutesPerTool": 0.12, "reasoningTokenWeight": 0 },
+        "research": { "relevantTokenFraction": 0.1, "tokensPerMinute": 600, "interactionMinutesPerTool": 0.12, "reasoningTokenWeight": 0 },
+        "coding": { "manualEntryFraction": 0.25, "wordsPerMinute": 60 },
+        "validation": { "relevantTokenFraction": 0.1, "tokensPerMinute": 600, "interactionMinutesPerTool": 0.12, "reasoningTokenWeight": 0 },
+        "unclassifiedManualMultiplier": 1
+      },
+      "base": {
+        "planning": { "relevantTokenFraction": 0.25, "tokensPerMinute": 400, "interactionMinutesPerTool": 0.25, "reasoningTokenWeight": 0 },
+        "research": { "relevantTokenFraction": 0.25, "tokensPerMinute": 400, "interactionMinutesPerTool": 0.25, "reasoningTokenWeight": 0 },
+        "coding": { "manualEntryFraction": 0.5, "wordsPerMinute": 40 },
+        "validation": { "relevantTokenFraction": 0.25, "tokensPerMinute": 400, "interactionMinutesPerTool": 0.25, "reasoningTokenWeight": 0 },
+        "unclassifiedManualMultiplier": 1.25
+      },
+      "optimistic": {
+        "planning": { "relevantTokenFraction": 0.5, "tokensPerMinute": 250, "interactionMinutesPerTool": 0.5, "reasoningTokenWeight": 0.25 },
+        "research": { "relevantTokenFraction": 0.5, "tokensPerMinute": 250, "interactionMinutesPerTool": 0.5, "reasoningTokenWeight": 0.25 },
+        "coding": { "manualEntryFraction": 1, "wordsPerMinute": 25 },
+        "validation": { "relevantTokenFraction": 0.5, "tokensPerMinute": 250, "interactionMinutesPerTool": 0.5, "reasoningTokenWeight": 0.25 },
+        "unclassifiedManualMultiplier": 1.5
+      }
+    }
+  },
+  "scenarios": {
+    "pessimistic": {
+      "minutesPerAcceptedEdit": 1,
+      "minutesPerAgentEditLoc": 0.1,
+      "minutesPerCodingToolCall": 1,
+      "minutesPerResearchToolCall": 1,
+      "minutesPerPlanningToolCall": 2,
+      "capacityRealization": 0.25
+    },
+    "base": {
+      "minutesPerAcceptedEdit": 3,
+      "minutesPerAgentEditLoc": 0.25,
+      "minutesPerCodingToolCall": 3,
+      "minutesPerResearchToolCall": 3,
+      "minutesPerPlanningToolCall": 5,
+      "capacityRealization": 0.5
+    },
+    "optimistic": {
+      "minutesPerAcceptedEdit": 6,
+      "minutesPerAgentEditLoc": 0.5,
+      "minutesPerCodingToolCall": 6,
+      "minutesPerResearchToolCall": 6,
+      "minutesPerPlanningToolCall": 10,
+      "capacityRealization": 0.75
+    }
+  }
+}

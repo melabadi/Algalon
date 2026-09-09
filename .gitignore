@@ -1,0 +1,27 @@
+.aspire-dashboard.pid
+.aspire-dashboard.stdout.log
+.aspire-dashboard.stderr.log
+.tools/
+data/
+config/value-model.local.json
+docker/.env
+.env
+.env.*
+!.env.example
+artifacts/
+.ci-artifacts/
+node_modules/
+dist/
+_site/
+*.tsbuildinfo
+coverage/
+.coverage
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+npm-debug.log*
+
+# Local Algalon runtime and telemetry
+.copilot-value/
