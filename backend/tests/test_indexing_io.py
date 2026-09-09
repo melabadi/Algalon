@@ -1,4 +1,5 @@
 from contextlib import closing, redirect_stdout
+import errno
 import io
 import json
 from pathlib import Path
@@ -47,7 +48,7 @@ class IndexingIoTests(unittest.TestCase):
 
         def removed(candidate, *arguments, **keywords):
             if candidate == self.log:
-                raise FileNotFoundError()
+                raise FileNotFoundError(errno.ENOENT, "synthetic missing log")
             return original_stat(candidate, *arguments, **keywords)
 
         with patch.object(Path, "stat", autospec=True, side_effect=removed):
