@@ -1,4 +1,4 @@
-import { useEffect, useState, type Dispatch, type SetStateAction } from 'react';
+import { useEffect, useLayoutEffect, useState, type Dispatch, type SetStateAction } from 'react';
 import { Copy, ExternalLink, Plus, RotateCcw, Save, Trash2 } from 'lucide-react';
 import valueModelExample from '../../../../config/value-model.example.json';
 import { Badge } from '../../components/ui';
@@ -22,7 +22,7 @@ function evidenceClassLabel(value: CalibrationSource['evidenceClass']): string {
   return messages.evidenceClasses[value];
 }
 
-function CalibrationNumberInput({ label, value, min, max, step, onChange }: {
+export function CalibrationNumberInput({ label, value, min, max, step, onChange }: {
   label: string;
   value: number;
   min: number;
@@ -31,7 +31,7 @@ function CalibrationNumberInput({ label, value, min, max, step, onChange }: {
   onChange: (value: number) => void;
 }) {
   const [rawValue, setRawValue] = useState(String(value));
-  useEffect(() => setRawValue(String(value)), [value]);
+  useLayoutEffect(() => setRawValue(String(value)), [value]);
   return <input
     type="number"
     aria-label={label}
