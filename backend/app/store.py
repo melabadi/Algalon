@@ -863,6 +863,7 @@ class ValueStore:
         self._config_signature: tuple[int, int] | None = None
         self._chat_log_signature: tuple[tuple[str, int, int], ...] | None = None
         self._chat_session_ids: set[str] = set()
+        self._chat_log_index: dict[str, tuple[Path, int, int]] = {}
         self.database_path.parent.mkdir(parents=True, exist_ok=True)
         self._initialize()
 
@@ -1212,6 +1213,7 @@ class ValueStore:
             if self.config_path.exists():
                 config_stat = self.config_path.stat()
                 config_signature = (config_stat.st_mtime_ns, config_stat.st_size)
+            self._refresh_chat_log_index()
             chat_log_signature = self._current_chat_log_signature()
             if (
                 trace_signature != self._trace_signature
@@ -1226,25 +1228,33 @@ class ValueStore:
                 self._refresh_prompt_source_invariant()
             self._prune_prompts()
 
-    def _chat_log_path(self, chat_session_id: str) -> Path | None:
-        if not self.chat_log_root or not self.chat_log_root.exists():
-            return None
-        matches = sorted(
-            path
-            for path in self.chat_log_root.glob(
+    def _refresh_chat_log_index(self) -> None:
+        log_index: dict[str, tuple[Path, int, int]] = {}
+        if self.chat_log_root and self.chat_log_root.exists():
+            for path in sorted(self.chat_log_root.glob(
                 "*/GitHub.copilot-chat/debug-logs/*/main.jsonl"
-            )
-            if path.parent.name == chat_session_id
-        )
-        return matches[0] if matches else None
+            )):
+                chat_session_id = path.parent.name
+                if chat_session_id in log_index:
+                    continue
+                try:
+                    stat = path.stat()
+                except FileNotFoundError:
+                    continue
+                log_index[chat_session_id] = (path, stat.st_mtime_ns, stat.st_size)
+        self._chat_log_index = log_index
+
+    def _chat_log_path(self, chat_session_id: str) -> Path | None:
+        entry = self._chat_log_index.get(chat_session_id)
+        return entry[0] if entry else None
 
     def _current_chat_log_signature(self) -> tuple[tuple[str, int, int], ...]:
         signature: list[tuple[str, int, int]] = []
         for chat_session_id in sorted(self._chat_session_ids):
-            path = self._chat_log_path(chat_session_id)
-            if path:
-                stat = path.stat()
-                signature.append((str(path), stat.st_mtime_ns, stat.st_size))
+            entry = self._chat_log_index.get(chat_session_id)
+            if entry:
+                path, modified, size = entry
+                signature.append((str(path), modified, size))
         return tuple(signature)
 
     def _prompt_storage_config(self) -> tuple[bool, int]:

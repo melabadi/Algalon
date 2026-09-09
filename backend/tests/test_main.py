@@ -52,6 +52,7 @@ class BackendAppTests(unittest.TestCase):
     def setUp(self) -> None:
         self.store.reset_mock()
         self.main.indexing_failure = None
+        self.main.indexing_started_at = None
 
     def test_health_overview_and_methodology_routes(self) -> None:
         self.store.overview.return_value = {"totals": {"sessions": 2}}
@@ -87,6 +88,39 @@ class BackendAppTests(unittest.TestCase):
             {"status": "degraded", "component": "indexing"},
         )
         self.assertNotIn("local detail", health.text)
+
+    def test_health_reports_stale_indexing_without_failing_normal_work(self) -> None:
+        with patch.object(self.main, "indexing_started_at", 10.0):
+            for elapsed in (0, 59.9, 60, 1_800):
+                with (
+                    self.subTest(elapsed=elapsed),
+                    patch.object(self.main, "monotonic", return_value=10.0 + elapsed),
+                ):
+                    response = self.client.get("/api/health")
+                    if elapsed < self.main.INDEXING_STALE_AFTER_SECONDS:
+                        self.assertEqual(response.status_code, 200)
+                        self.assertEqual(response.json(), {"status": "ok"})
+                    else:
+                        self.assertEqual(response.status_code, 503)
+                        self.assertEqual(response.json(), {
+                            "status": "degraded",
+                            "component": "indexing",
+                            "reason": "stale",
+                            "elapsedSeconds": elapsed,
+                        })
+
+    def test_health_uses_one_snapshot_when_indexing_finishes_concurrently(self) -> None:
+        self.main.indexing_started_at = 10.0
+
+        def finish_indexing() -> float:
+            self.main.indexing_started_at = None
+            return 20.0
+
+        with patch.object(self.main, "monotonic", side_effect=finish_indexing):
+            response = self.client.get("/api/health")
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json(), {"status": "ok"})
 
     def test_internal_otlp_routes_ingest_and_page_records(self) -> None:
         self.store.ingest_otlp_traces.return_value = {"received": 1, "accepted": 1}
@@ -190,17 +224,25 @@ class BackendLifecycleTests(unittest.IsolatedAsyncioTestCase):
                 await main.indexing_loop()
         log_exception.assert_called_once_with("Local evidence indexing failed; retrying.")
         self.assertEqual(main.indexing_failure, "index failed")
+        self.assertIsNone(main.indexing_started_at)
 
     async def test_indexing_loop_clears_degraded_health_after_success(self) -> None:
         main = BackendAppTests.main
         main.indexing_failure = "previous failure"
+
+        async def check_running_state(index_once) -> None:
+            self.assertEqual(main.indexing_started_at, 10.0)
+            self.assertEqual(index_once, main.store.index_once)
+
         with (
-            patch.object(main.asyncio, "to_thread", new=AsyncMock(return_value=None)),
+            patch.object(main, "monotonic", return_value=10.0),
+            patch.object(main.asyncio, "to_thread", new=AsyncMock(side_effect=check_running_state)),
             patch.object(main.asyncio, "sleep", new=AsyncMock(side_effect=asyncio.CancelledError)),
         ):
             with self.assertRaises(asyncio.CancelledError):
                 await main.indexing_loop()
         self.assertIsNone(main.indexing_failure)
+        self.assertIsNone(main.indexing_started_at)
 
     async def test_lifespan_starts_and_cancels_background_indexing(self) -> None:
         main = BackendAppTests.main

@@ -5,6 +5,7 @@ from contextlib import asynccontextmanager
 import logging
 import os
 from pathlib import Path
+from time import monotonic
 
 from fastapi import FastAPI, HTTPException, Query, Request
 from fastapi.responses import JSONResponse, Response
@@ -24,17 +25,22 @@ static_directory = Path(os.environ.get("COPILOT_VALUE_STATIC_DIR", "/app/static"
 store = ValueStore(database_path, session_directory, trace_archive, config_path, chat_log_root)
 logger = logging.getLogger(__name__)
 indexing_failure: str | None = None
+indexing_started_at: float | None = None
+INDEXING_STALE_AFTER_SECONDS = 60
 
 
 async def indexing_loop() -> None:
-    global indexing_failure
+    global indexing_failure, indexing_started_at
     while True:
+        indexing_started_at = monotonic()
         try:
             await asyncio.to_thread(store.index_once)
             indexing_failure = None
         except Exception as error:
             indexing_failure = str(error)
             logger.exception("Local evidence indexing failed; retrying.")
+        finally:
+            indexing_started_at = None
         await asyncio.sleep(2)
 
 
@@ -67,6 +73,19 @@ def health():
             status_code=503,
             content={"status": "degraded", "component": "indexing"},
         )
+    started_at = indexing_started_at
+    if started_at is not None:
+        elapsed_seconds = monotonic() - started_at
+        if elapsed_seconds >= INDEXING_STALE_AFTER_SECONDS:
+            return JSONResponse(
+                status_code=503,
+                content={
+                    "status": "degraded",
+                    "component": "indexing",
+                    "reason": "stale",
+                    "elapsedSeconds": round(elapsed_seconds, 1),
+                },
+            )
     return {"status": "ok"}
 
 
