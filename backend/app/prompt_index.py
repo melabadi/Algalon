@@ -7,7 +7,7 @@ from pathlib import Path
 import re
 from typing import Any, Iterable
 
-from .trace_archive import attributes, read_json_lines
+from .trace_archive import attributes, iter_json_lines
 
 
 MAX_COUNTER = 2**63 - 1
@@ -155,7 +155,7 @@ def read_copilot_turns(
 ) -> list[dict[str, Any]]:
     turns: list[dict[str, Any]] = []
     current: dict[str, Any] | None = None
-    for event in read_json_lines(path, skip_invalid=True):
+    for event in iter_json_lines(path, skip_invalid=True):
         event_type = str(event.get("type") or "")
         event_attributes = event.get("attrs") or {}
         if event_type == "user_message":

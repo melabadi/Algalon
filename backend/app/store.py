@@ -19,7 +19,7 @@ from .indexing import (
 from .insights import _complete_usage, _parse_iso, build_insights
 from .indexing_job import prepare_in_process
 from .intervals import union_interval_duration
-from .log_io import MAX_DIRECT_LOG_BYTES, discover_logs, isolated_log_io
+from .log_io import discover_logs, isolated_log_io
 from .prompt_index import (
     conversation_ids,
     extract_prompt_content as _extract_prompt_content,
@@ -1567,8 +1567,6 @@ class ValueStore:
                 path = self._chat_log_path(identifier)
                 if path is None:
                     raise IndexingBlocked("waiting_for_logs")
-                if self._chat_log_index[identifier][2] > MAX_DIRECT_LOG_BYTES:
-                    raise IndexingBlocked("log_size_limit")
                 turns = (
                     isolated_log_io("turns", path, started, ended)
                     if self.isolate_log_io else _read_copilot_turns(path, started, ended)

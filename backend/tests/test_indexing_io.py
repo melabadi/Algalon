@@ -7,6 +7,7 @@ import sqlite3
 import subprocess
 import sys
 import tempfile
+import tracemalloc
 import unittest
 from unittest.mock import Mock, patch
 
@@ -33,12 +34,6 @@ class IndexingIoTests(unittest.TestCase):
         with patch.object(sys, "argv", ["log_io", "turns", str(self.log), "0", "2000"]), redirect_stdout(io.StringIO()) as output:
             log_io.main()
         self.assertEqual(json.loads(output.getvalue())[0]["output_tokens"], 10)
-        with (
-            patch.object(sys, "argv", ["log_io", "turns", str(self.log), "0", "2000"]),
-            patch.object(log_io, "MAX_DIRECT_LOG_BYTES", 1),
-        ):
-            with self.assertRaisesRegex(IndexingBlocked, "log_size_limit"):
-                log_io.main()
         with patch.object(sys, "argv", ["log_io", "unknown", str(self.log)]):
             with self.assertRaises(ValueError):
                 log_io.main()
@@ -56,6 +51,29 @@ class IndexingIoTests(unittest.TestCase):
         with patch.object(log_io, "MAX_DISCOVERED_LOGS", 0):
             with self.assertRaisesRegex(IndexingBlocked, "log_discovery_limit"):
                 log_io.discover_logs(self.root)
+
+    def test_log_larger_than_64_mib_streams_without_retaining_all_events(self) -> None:
+        ignored_event = json.dumps({"type": "tool_result", "attrs": {"content": "x" * 65_536}}) + "\n"
+        with self.log.open("a", encoding="utf-8") as output:
+            for _event in range(1_025):
+                output.write(ignored_event)
+            output.write(json.dumps({
+                "ts": 1200, "type": "llm_request",
+                "attrs": {"model": "synthetic", "outputTokens": 7},
+            }) + "\n")
+        self.assertGreater(self.log.stat().st_size, 64 * 1024 * 1024)
+        tracemalloc.start()
+        try:
+            with (
+                patch.object(sys, "argv", ["log_io", "turns", str(self.log), "0", "2000"]),
+                redirect_stdout(io.StringIO()) as result,
+            ):
+                log_io.main()
+            peak = tracemalloc.get_traced_memory()[1]
+        finally:
+            tracemalloc.stop()
+        self.assertEqual(json.loads(result.getvalue())[0]["output_tokens"], 17)
+        self.assertLess(peak, 8 * 1024 * 1024)
 
     def test_isolated_io_errors_remain_bounded_and_do_not_echo_private_details(self) -> None:
         with patch.object(log_io.subprocess, "run", return_value=Mock(returncode=0, stdout='{"synthetic": []}')):
