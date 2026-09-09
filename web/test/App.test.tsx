@@ -1351,9 +1351,12 @@ describe('methodology and navigation', () => {
     await screen.findByRole('heading', { name: 'Calibration workspace' });
     const loadedRate = screen.getByRole('spinbutton', { name: 'Loaded labor rate' });
     await user.clear(loadedRate);
+    expect(loadedRate).toHaveValue(null);
     await user.type(loadedRate, '240');
+    expect(loadedRate).toHaveValue(240);
     await user.type(screen.getByRole('textbox', { name: 'Calibration name' }), 'High loaded rate');
     await user.click(screen.getByRole('button', { name: 'Save calibration' }));
+    expect(loadSavedCalibrations().find((calibration) => calibration.name === 'High loaded rate')?.draft.loadedHourlyRateUsd).toBe(240);
     expect(screen.getByRole('button', { name: 'Custom' })).toBeEnabled();
     await user.click(screen.getByRole('button', { name: 'Custom' }));
 
