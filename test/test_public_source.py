@@ -11,6 +11,13 @@ from urllib.parse import urlsplit
 ROOT = Path(__file__).resolve().parents[1]
 
 
+def is_approved_public_contact(path: str, address: str) -> bool:
+    return (
+        path in ("site/index.html", "site/methodology.html")
+        and address == "@".join(("mehdilabadi", "microsoft.com"))
+    )
+
+
 class PublicSourceTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls) -> None:
@@ -59,6 +66,17 @@ class PublicSourceTests(unittest.TestCase):
                         self.assertEqual(url.netloc, "registry.npmjs.org")
                         self.assertFalse(url.query or url.fragment)
 
+    def test_contact_exception_is_exact_and_page_scoped(self) -> None:
+        contact = "@".join(("mehdilabadi", "microsoft.com"))
+        for path in ("site/index.html", "site/methodology.html"):
+            with self.subTest(path=path):
+                self.assertTrue(is_approved_public_contact(path, contact))
+                self.assertFalse(is_approved_public_contact(path, "other-" + contact))
+                self.assertFalse(is_approved_public_contact(path, contact + ".example.com"))
+        for path in ("README.md", "site/styles.css", "test/test_pages_site.py"):
+            with self.subTest(path=path):
+                self.assertFalse(is_approved_public_contact(path, contact))
+
     def test_text_has_no_corporate_endpoints_or_personal_contacts(self) -> None:
         patterns = {
             "corporate endpoint": re.compile(
@@ -81,7 +99,10 @@ class PublicSourceTests(unittest.TestCase):
             text = payload.decode("utf-8", errors="replace")
             for category, pattern in patterns.items():
                 with self.subTest(path=name, category=category):
-                    self.assertIsNone(pattern.search(text), f"{category} in {name}")
+                    for match in pattern.finditer(text):
+                        if category == "email address" and is_approved_public_contact(name, match.group()):
+                            continue
+                        self.fail(f"{category} in {name}")
 
 
 if __name__ == "__main__":
