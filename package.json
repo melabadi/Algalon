@@ -22,7 +22,7 @@
   },
   "dependencies": {
     "diff": "8.0.3",
-    "zod": "4.4.3"
+    "zod": "4.5.4"
   },
   "devDependencies": {
     "@types/node": "22.19.19",
