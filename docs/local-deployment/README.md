@@ -258,6 +258,8 @@ Accepted spans and their pending indexing work commit together in SQLite. Change
 
 Indexing uses fair batches of up to 16 sessions with a five-second scheduling budget between jobs. Optional log discovery has a five-second deadline; per-session preparation runs in a read-only process with a 15-second deadline. Only the app process commits results. Failed work remains pending with exponential retry delays capped at 256 seconds. A missing worker artifact is initially **Catching up**; malformed counters, unavailable inputs, or 60-second freshness breaches report **Blocked**. The health endpoint returns HTTP 503 while indexing is blocked or a running pass exceeds 60 seconds. These are processing signals, not a claim that retained evidence was lost.
 
+Direct logs are streamed one JSONL event at a time, rather than loaded into memory as a whole file. File size alone does not block indexing; memory use depends on the largest event and the resulting prompt summaries. Preparation deadlines and worker-summary reconciliation still apply.
+
 Upgrade an older installation with the latest verified PYZ to receive this behavior. Existing inbox history is scheduled through resumable migration pages. Initial backlog catch-up can exceed the live-update target; progress remains visible. Do not delete telemetry or reset volumes to force a refresh. If inputs remain blocked, inspect the reported reason and repair the source or storage availability, then allow the existing retry to resume.
 
 ### Storage pressure and recovery

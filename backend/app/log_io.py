@@ -11,7 +11,6 @@ from .prompt_index import read_copilot_turns
 
 
 LOG_IO_TIMEOUT_SECONDS = 5
-MAX_DIRECT_LOG_BYTES = 64 * 1024 * 1024
 MAX_DISCOVERED_LOGS = 10_000
 
 
@@ -55,8 +54,6 @@ def main() -> None:
             for identifier, (candidate, modified, size) in discover_logs(path).items()
         }
     elif operation == "turns":
-        if path.stat().st_size > MAX_DIRECT_LOG_BYTES:
-            raise IndexingBlocked("log_size_limit")
         result = read_copilot_turns(path, *(int(value) for value in arguments))
     else:
         raise ValueError("Unknown log operation")

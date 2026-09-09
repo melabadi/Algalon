@@ -238,6 +238,42 @@ class DurableIndexingTests(unittest.TestCase):
         self.assertEqual(self.store.session(experiment)["tokens"]["output"], 20)
         self.assertEqual(self.store.indexing_status()["state"], "current")
 
+    def test_isolated_preparation_accepts_direct_logs_larger_than_64_mib(self) -> None:
+        experiment = self.artifact()
+        self.store.ingest_otlp_traces(self.payload())
+        self.store.chat_log_root = self.root / "workspace-storage"
+        self.store.isolate_log_io = True
+        direct_log = self.store.chat_log_root / "workspace/GitHub.copilot-chat/debug-logs/conversation-session-a/main.jsonl"
+        direct_log.parent.mkdir(parents=True)
+        ignored = json.dumps({"type": "tool_result", "attrs": {"content": "x" * 65_536}}) + "\n"
+        with direct_log.open("w", encoding="utf-8") as output:
+            output.write(json.dumps({
+                "ts": self.started, "type": "user_message", "attrs": {"content": "Synthetic direct prompt"},
+            }) + "\n")
+            for _event in range(1_025):
+                output.write(ignored)
+            output.write(json.dumps({
+                "ts": self.started + 100, "type": "llm_request", "attrs": {
+                    "model": "model-a", "inputTokens": 100, "cachedTokens": 80,
+                    "outputTokens": 10, "reasoningTokens": 0, "copilotUsageNanoAiu": 1_000_000_000,
+                },
+            }) + "\n")
+        self.assertGreater(direct_log.stat().st_size, 64 * 1024 * 1024)
+        path = self.root / "sessions" / f"{experiment}.json"
+        artifact = json.loads(path.read_text(encoding="utf-8"))
+        artifact["inboxCursor"] = self.store.otel_records()["nextCursor"]
+        artifact["usage"] = {
+            "source": "copilot_turn_log", "chatSpans": 1, "inputTokens": 100,
+            "cacheReadTokens": 80, "outputTokens": 10, "reasoningTokens": 0,
+            "aiCredits": 1, "aiCostUsd": 0.01,
+        }
+        path.write_text(json.dumps(artifact), encoding="utf-8")
+        self.store.index_once()
+        self.assertEqual(self.store.indexing_status()["state"], "current")
+        self.assertEqual(self.store.prompts(experiment)[0]["outputTokens"], 10)
+        self.assertEqual(self.store.prompts(experiment)[0]["usageSource"], "copilot_turn_log")
+        self.assertEqual(self.store.session(experiment)["tokens"]["output"], 10)
+
     def test_online_backup_restores_evidence_and_unfinished_work(self) -> None:
         experiment = self.artifact()
         self.store.ingest_otlp_traces(self.payload())
