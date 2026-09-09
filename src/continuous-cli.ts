@@ -123,7 +123,8 @@ async function publishTrackedSession(
   outputDirectory: string,
   trackedSession: TrackedSession,
   completedAt: string,
-  usage: ExperimentUsage
+  usage: ExperimentUsage,
+  inboxCursor?: number
 ) {
   const result = await evaluateOtelOnlyWindow({
     experiment: trackedSession.experiment,
@@ -143,6 +144,7 @@ async function publishTrackedSession(
   const temporaryArtifactPath = `${artifactPath}.${process.pid}.tmp`;
   await writeFile(temporaryArtifactPath, `${JSON.stringify({
     calculationVersion: SESSION_CALCULATION_VERSION,
+    ...(inboxCursor !== undefined ? { inboxCursor } : {}),
     modelConfigurationSignature: publishedModelConfigurationSignature,
     experiment: trackedSession.experiment,
     startedAt: trackedSession.startedAt,
@@ -313,7 +315,8 @@ async function main(): Promise<void> {
             outputDirectory,
             candidate,
             refreshed.session.endedAt,
-            usage
+            usage,
+            traceCollector.inboxCursor
           )
         );
         pendingMigrationSessionIds.delete(sessionId);
@@ -351,7 +354,7 @@ async function main(): Promise<void> {
 
     try {
       if (!inboxUrl) await access(config.traceArchivePath);
-      const scan = await traceCollector.scan();
+      const scan = await traceCollector.scan(false);
       const discovered = scan.sessions;
       let stateChanged = scan.stateChanged;
       if (scan.recordsRead > 0) {
@@ -482,7 +485,8 @@ async function main(): Promise<void> {
             outputDirectory,
             candidate,
             session.endedAt,
-            sessionUsage
+            sessionUsage,
+            traceCollector.inboxCursor
           )
         );
         pendingMigrationSessionIds.delete(session.sessionId);

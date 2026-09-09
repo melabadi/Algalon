@@ -46,7 +46,7 @@ export class IncrementalTraceSessionCollector {
     this.accumulator = new TraceEvidenceAccumulator(state?.evidence);
   }
 
-  async scan(): Promise<IncrementalTraceScan> {
+  async scan(includeEvidence = true): Promise<IncrementalTraceScan> {
     const previousCursor = this.cursor;
     const incremental = await readIncrementalJsonLines<unknown>(this.filePath, previousCursor);
     this.cursor = incremental.cursor;
@@ -56,7 +56,7 @@ export class IncrementalTraceSessionCollector {
     const latestMilliseconds = this.accumulator.latestSpanTimestampMilliseconds();
     const changedSessionIds = [...this.pendingSessionIds].sort();
     return {
-      evidence: this.accumulator.evidence(this.phasePatterns, this.pendingSessionIds, this.maxIdleGapSeconds),
+      evidence: includeEvidence ? this.accumulator.evidence(this.phasePatterns, this.pendingSessionIds, this.maxIdleGapSeconds) : [],
       sessions: this.accumulator.sessions(),
       changedSessionIds,
       recordsRead: incremental.records.length,
@@ -75,6 +75,10 @@ export class IncrementalTraceSessionCollector {
 
   commit(): void {
     this.pendingSessionIds.clear();
+  }
+
+  get inboxCursor(): undefined {
+    return undefined;
   }
 
   serialize(): IncrementalTraceEvidenceState {
@@ -117,7 +121,7 @@ async function readOtlpInbox(
 ): Promise<{ records: unknown[]; cursor: number; caughtUp: boolean }> {
   const url = new URL(endpoint);
   url.searchParams.set('after', String(after));
-  url.searchParams.set('limit', '1000');
+  url.searchParams.set('limit', '10000');
   const response = await request(url, { signal: AbortSignal.timeout(60_000) });
   if (!response.ok) {
     throw new Error(`OTLP inbox read failed (${response.status}): ${(await response.text()).slice(0, 500)}`);
@@ -159,7 +163,7 @@ export class OtlpInboxSessionCollector {
     }
   }
 
-  async scan(): Promise<IncrementalTraceScan> {
+  async scan(includeEvidence = true): Promise<IncrementalTraceScan> {
     const previousCursor = this.cursor;
     const previouslyCaughtUp = this.caughtUp;
     const incremental = await readOtlpInbox(this.endpoint, previousCursor, this.request);
@@ -171,9 +175,9 @@ export class OtlpInboxSessionCollector {
     const latestMilliseconds = this.accumulator.latestSpanTimestampMilliseconds();
     const changedSessionIds = [...this.pendingSessionIds].sort();
     return {
-      evidence: this.accumulator.evidence(
+      evidence: includeEvidence ? this.accumulator.evidence(
         this.phasePatterns, this.pendingSessionIds, this.maxIdleGapSeconds
-      ),
+      ) : [],
       sessions: this.accumulator.sessions(),
       changedSessionIds,
       recordsRead: incremental.records.length,
@@ -193,6 +197,10 @@ export class OtlpInboxSessionCollector {
 
   commit(): void {
     this.pendingSessionIds.clear();
+  }
+
+  get inboxCursor(): number {
+    return this.cursor;
   }
 
   serialize(): OtlpInboxTraceEvidenceState {

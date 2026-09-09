@@ -252,9 +252,21 @@ Run `status`. The React app retries transient API failures, but repeated refusal
 
 ### Prompt counts or token totals stop refreshing
 
-Session summaries and prompt rows are indexed separately. If an indexing pass runs for 60 seconds or longer, `http://127.0.0.1:3000/api/health` returns HTTP 503 with `component: indexing`, `reason: stale`, and `elapsedSeconds`. This reports delayed processing, not missing telemetry. Normal health returns after the pass completes successfully.
+The header reports the durable indexing state: **Index current**, **Catching up**, **Indexing blocked**, or **Index status unavailable**. The status tooltip includes pending session count, oldest pending age, and the last successful publication time. `http://127.0.0.1:3000/api/indexing` exposes the same progress, and accepts an optional public `experiment` identifier to inspect one session. A responsive API alone does not establish that its index is current.
 
-The app discovers matching Copilot log paths once per indexing pass and reuses that snapshot for all conversations. New, changed, and removed logs are detected on the next pass. Upgrade an older installation with the latest verified PYZ to receive the bounded lookup behavior; retained inbox records rebuild the prompt index automatically. Do not delete telemetry or reset volumes to force a refresh.
+Accepted spans and their pending indexing work commit together in SQLite. Changed artifacts, direct logs, and configuration schedule affected sessions again. Each session's summary, prompt rows, and input checkpoint publish in one transaction. A restart resumes unfinished work, and failed publication preserves the previous valid snapshot. The worker publishes its consumed inbox cursor so indexing can wait for a summary that covers the retained input.
+
+Indexing uses fair batches of up to 16 sessions with a five-second scheduling budget between jobs. Optional log discovery has a five-second deadline; per-session preparation runs in a read-only process with a 15-second deadline. Only the app process commits results. Failed work remains pending with exponential retry delays capped at 256 seconds. A missing worker artifact is initially **Catching up**; malformed counters, unavailable inputs, or 60-second freshness breaches report **Blocked**. The health endpoint returns HTTP 503 while indexing is blocked or a running pass exceeds 60 seconds. These are processing signals, not a claim that retained evidence was lost.
+
+Upgrade an older installation with the latest verified PYZ to receive this behavior. Existing inbox history is scheduled through resumable migration pages. Initial backlog catch-up can exceed the live-update target; progress remains visible. Do not delete telemetry or reset volumes to force a refresh. If inputs remain blocked, inspect the reported reason and repair the source or storage availability, then allow the existing retry to resume.
+
+### Storage pressure and recovery
+
+The app refuses new ingestion with HTTP 503 and `Retry-After` when fewer than 64 MiB remain on the database filesystem or a write cannot commit. The Collector retains privacy-scrubbed retries in its persistent exporter queue on the telemetry volume. Replay is deduplicated by span identity. Queue capacity and storage are finite; monitor free space and do not treat this as protection against a destroyed disk or telemetry never received by the Collector.
+
+SQLite online backups include committed inbox spans and unfinished indexing work. From the app container, `python -m app.database_backup /data/app/value.db /data/backups/value-backup.sqlite3` creates and verifies a new backup without stopping reads. It refuses to overwrite an existing destination. Copy verified backups off the telemetry disk to protect against disk loss; they contain private local evidence and require the same access controls as the live data.
+
+Restore only while the app writer is stopped. The same utility can copy a verified backup into a new database path; point the installation at the restored database before restarting the single writer. Keep the associated session artifacts, local configuration, and any available matching direct logs when recovering the complete installation. Never run a second app against the live writable volume. Backup/restart recovery is covered by automated tests; catastrophic disk loss requires a separately retained backup.
 
 ### Docker builds cannot reach npm or PyPI
 

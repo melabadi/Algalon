@@ -161,6 +161,16 @@ npm run build --prefix web
 
 `npm run test:coverage` enforces at least 90% line coverage independently for the TypeScript calculation/evidence worker, Python installer, FastAPI/SQLite backend, and React/API frontend. Type-only files, the React bootstrap, and TypeScript executable adapters are outside line instrumentation; the portable bundle smoke validates the packaged CLI adapters end to end.
 
+The Python suite includes a small isolated API/worker restart test. Backend fault tests cover atomic inbox/work commits, replay deduplication, a hard process exit during publication, SQLite contention, malformed sessions, mid-build input, bounded batches, and backup restoration. They use temporary databases and never open the live telemetry volume.
+
+After building the worker, run the larger synthetic-history freshness check from the checkout root:
+
+```powershell
+python -m scripts.indexing_reliability --spans 730000 --sessions 250 --updates 40
+```
+
+This starts the real API and TypeScript worker on temporary loopback endpoints with an isolated SQLite database and a local metrics sink. It checks retained-history catch-up, continuing updates, API/worker restart, and exact final prompt totals. The proposed live-update limits are p95 at most 30 seconds and p99 at most 60 seconds after initial catch-up, under the reported synthetic workload; they are release acceptance targets, not a guarantee for arbitrary hardware, workload, or upstream outages. Collector privacy and persisted exporter delivery are validated separately with the container smoke checks.
+
 Use `python scripts/copilot_value.py bundle` for a release build and `python scripts/copilot_value.py smoke-bundle --skip-build` to validate the exact generated artifact. The full smoke requires Docker and temporarily occupies the product ports.
 
 Generated `node_modules/`, `dist/`, `web/dist/`, `data/`, local configuration, Compose `.env`, and release `artifacts/` are ignored and may be regenerated. Keep the current release artifacts only when they are needed for distribution or smoke testing.

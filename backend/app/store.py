@@ -8,10 +8,18 @@ from math import fsum, isclose, isfinite
 from pathlib import Path
 import sqlite3
 import threading
+from time import monotonic, time
 from typing import Any, Iterable
 
+from .indexing import (
+    IndexingBlocked, bootstrap_indexing, complete_work, enqueue_session, enqueue_work, initialize_indexing,
+    indexing_status, record_conversations, require_storage_capacity, retry_work,
+    stage_artifacts, stage_log_changes, write_prompts,
+)
 from .insights import _complete_usage, _parse_iso, build_insights
+from .indexing_job import prepare_in_process
 from .intervals import union_interval_duration
+from .log_io import MAX_DIRECT_LOG_BYTES, discover_logs, isolated_log_io
 from .prompt_index import (
     conversation_ids,
     extract_prompt_content as _extract_prompt_content,
@@ -64,6 +72,7 @@ MAX_SQLITE_INTEGER = 2**63 - 1
 MAX_JSON_SAFE_INTEGER = 2**53 - 1
 LEGACY_TRACE_IMPORT_KEY = "legacy_trace_inbox_import_v1"
 OTEL_IMPORT_BATCH_SIZE = 1_000
+OTEL_INBOX_PAGE_BYTES = 8 * 1024 * 1024
 INSIGHTS_SESSION_QUERY = """
     SELECT sessions.*
     FROM session_time_index AS time_index INDEXED BY idx_session_time_epoch
@@ -851,12 +860,16 @@ class ValueStore:
         trace_archive: Path,
         config_path: Path,
         chat_log_root: Path | None = None,
+        *, isolate_log_io: bool = False,
     ) -> None:
         self.database_path = database_path
         self.session_directory = session_directory
         self.trace_archive = trace_archive
         self.config_path = config_path
         self.chat_log_root = chat_log_root
+        self.isolate_log_io = isolate_log_io
+        self._log_discovery_error: str | None = None
+        self._log_retry_at = 0.0
         self._lock = threading.RLock()
         self._trace_signature: object | None = None
         self._session_signature: tuple[tuple[str, int, int], ...] | None = None
@@ -868,10 +881,11 @@ class ValueStore:
         self._initialize()
 
     def _connect(self) -> sqlite3.Connection:
-        connection = sqlite3.connect(self.database_path, timeout=30)
+        connection = sqlite3.connect(self.database_path, timeout=2)
         connection.row_factory = sqlite3.Row
         connection.execute("PRAGMA journal_mode=WAL")
         connection.execute("PRAGMA foreign_keys=ON")
+        connection.execute("PRAGMA synchronous=FULL")
         return connection
 
     def _config(self) -> dict[str, Any]:
@@ -1023,6 +1037,7 @@ class ValueStore:
                 ),
             )
             self._remove_wrong_source_prompts(connection)
+            initialize_indexing(connection)
             connection.commit()
 
     @staticmethod
@@ -1097,21 +1112,27 @@ class ValueStore:
             return 0
         with closing(self._connect()) as connection:
             connection.execute("BEGIN IMMEDIATE")
-            before = connection.total_changes
-            connection.executemany(
-                """
+            accepted = 0
+            changed_sessions: dict[str, int] = {}
+            for record in records:
+                inserted = connection.execute("""
                 INSERT INTO otel_records (
                     record_key, session_id, started_at_milliseconds, record_json, ingested_at
                 ) VALUES (?, ?, ?, ?, ?)
                 ON CONFLICT(record_key) DO NOTHING
-                """,
-                records,
-            )
-            accepted = connection.total_changes - before
+                RETURNING cursor
+                """, record).fetchone()
+                if inserted:
+                    accepted += 1
+                    changed_sessions[record[1]] = inserted["cursor"]
+                    record_conversations(connection, record[1], record[3])
+            for session_id, cursor in changed_sessions.items():
+                enqueue_session(connection, session_id, cursor)
             connection.commit()
         return accepted
 
     def ingest_otlp_traces(self, payload: Any) -> dict[str, int]:
+        require_storage_capacity(self.database_path.parent)
         records = self._otel_trace_rows(
             payload, datetime.now(timezone.utc).isoformat()
         )
@@ -1151,6 +1172,9 @@ class ValueStore:
 
     def otel_records(self, after: int = 0, limit: int = 1_000) -> dict[str, Any]:
         bounded_limit = min(10_000, max(1, limit))
+        selected: list[sqlite3.Row] = []
+        size = 0
+        has_more = False
         with closing(self._connect()) as connection:
             rows = connection.execute(
                 """
@@ -1161,12 +1185,18 @@ class ValueStore:
                 LIMIT ?
                 """,
                 (max(0, after), bounded_limit + 1),
-            ).fetchall()
-        selected = rows[:bounded_limit]
+            )
+            for row in rows:
+                record_size = len(row["record_json"].encode("utf-8"))
+                if len(selected) >= bounded_limit or selected and size + record_size > OTEL_INBOX_PAGE_BYTES:
+                    has_more = True
+                    break
+                selected.append(row)
+                size += record_size
         return {
             "records": [_json_loads(row["record_json"]) for row in selected],
             "nextCursor": selected[-1]["cursor"] if selected else max(0, after),
-            "hasMore": len(rows) > bounded_limit,
+            "hasMore": has_more,
         }
 
     @staticmethod
@@ -1201,48 +1231,60 @@ class ValueStore:
     def index_once(self) -> None:
         with self._lock:
             self._import_legacy_trace_archive_once()
+            with closing(self._connect()) as connection:
+                bootstrap_indexing(connection)
             self.session_directory.mkdir(parents=True, exist_ok=True)
-            session_signature = tuple(
-                (path.name, path.stat().st_mtime_ns, path.stat().st_size)
-                for path in sorted(self.session_directory.glob("session-*.json"))
-            )
             self._index_sessions()
-            self._refresh_prompt_source_invariant()
-            trace_signature = self._current_trace_signature()
-            config_signature = None
-            if self.config_path.exists():
-                config_stat = self.config_path.stat()
-                config_signature = (config_stat.st_mtime_ns, config_stat.st_size)
-            self._refresh_chat_log_index()
-            chat_log_signature = self._current_chat_log_signature()
-            if (
-                trace_signature != self._trace_signature
-                or session_signature != self._session_signature
-                or config_signature != self._config_signature
-                or chat_log_signature != self._chat_log_signature
-            ):
-                self._trace_signature = self._index_prompts()
-                self._session_signature = session_signature
-                self._config_signature = config_signature
-                self._chat_log_signature = self._current_chat_log_signature()
-                self._refresh_prompt_source_invariant()
+            if monotonic() >= self._log_retry_at:
+                try:
+                    self._refresh_chat_log_index()
+                    self._log_discovery_error = None
+                except (OSError, IndexingBlocked):
+                    self._log_discovery_error = "log_discovery_unavailable"
+                    self._log_retry_at = monotonic() + 30
+            with closing(self._connect()) as connection:
+                if self._log_discovery_error is None:
+                    stage_log_changes(connection, self._chat_log_index)
+                self._chat_session_ids.update(row[0] for row in connection.execute(
+                    "SELECT DISTINCT conversation_id FROM indexing_conversations"
+                ))
+                config_signature = sha256(json.dumps(self._config(), sort_keys=True).encode("utf-8")).hexdigest()
+                previous = connection.execute(
+                    "SELECT value FROM store_metadata WHERE key = 'indexing_config'"
+                ).fetchone()
+                if previous is None or previous[0] != config_signature:
+                    with connection:
+                        for row in connection.execute("SELECT work_key FROM indexing_work").fetchall():
+                            enqueue_work(connection, row[0])
+                        connection.execute("""
+                            INSERT INTO store_metadata VALUES ('indexing_config', ?)
+                            ON CONFLICT(key) DO UPDATE SET value = excluded.value
+                        """, (config_signature,))
+                with connection:
+                    connection.execute("""
+                        INSERT INTO store_metadata VALUES ('indexing_last_discovery', ?)
+                        ON CONFLICT(key) DO UPDATE SET value = excluded.value
+                    """, (str(time()),))
+                    connection.execute("""
+                        INSERT INTO store_metadata VALUES ('indexing_discovery_error', ?)
+                        ON CONFLICT(key) DO UPDATE SET value = excluded.value
+                    """, (self._log_discovery_error or "",))
+            self._index_prompts()
+            self._chat_log_signature = self._current_chat_log_signature()
             self._prune_prompts()
 
+    def indexing_status(self, experiment: str | None = None) -> dict[str, Any]:
+        with closing(self._connect()) as connection:
+            return indexing_status(connection, experiment)
+
     def _refresh_chat_log_index(self) -> None:
-        log_index: dict[str, tuple[Path, int, int]] = {}
-        if self.chat_log_root and self.chat_log_root.exists():
-            for path in sorted(self.chat_log_root.glob(
-                "*/GitHub.copilot-chat/debug-logs/*/main.jsonl"
-            )):
-                chat_session_id = path.parent.name
-                if chat_session_id in log_index:
-                    continue
-                try:
-                    stat = path.stat()
-                except FileNotFoundError:
-                    continue
-                log_index[chat_session_id] = (path, stat.st_mtime_ns, stat.st_size)
-        self._chat_log_index = log_index
+        if self.isolate_log_io and self.chat_log_root is not None:
+            self._chat_log_index = {
+                identifier: (Path(entry[0]), entry[1], entry[2])
+                for identifier, entry in isolated_log_io("discover", self.chat_log_root).items()
+            }
+        else:
+            self._chat_log_index = discover_logs(self.chat_log_root)
 
     def _chat_log_path(self, chat_session_id: str) -> Path | None:
         entry = self._chat_log_index.get(chat_session_id)
@@ -1277,23 +1319,16 @@ class ValueStore:
             connection.execute("DELETE FROM prompts WHERE started_at < ?", (retention_cutoff.isoformat(),))
             connection.commit()
 
-    def _index_sessions(self) -> None:
-        self.session_directory.mkdir(parents=True, exist_ok=True)
-        artifacts: list[dict[str, Any]] = []
-        for artifact_path in sorted(self.session_directory.glob("session-*.json")):
-            try:
-                artifact = _json_loads(artifact_path.read_text(encoding="utf-8"))
-            except (OSError, UnicodeError, json.JSONDecodeError, RecursionError, ValueError):
-                continue
-            if (
-                isinstance(artifact, dict)
-                and isinstance(artifact.get("experiment"), str)
-                and artifact["experiment"]
-            ):
-                artifacts.append(artifact)
-
-        with closing(self._connect()) as connection:
-            connection.execute("BEGIN")
+    def _index_sessions(
+        self, connection: sqlite3.Connection | None = None,
+        artifacts: list[dict[str, Any]] | None = None,
+    ) -> None:
+        if connection is None:
+            self.session_directory.mkdir(parents=True, exist_ok=True)
+            with closing(self._connect()) as connection:
+                stage_artifacts(connection, self.session_directory, _json_loads)
+            return
+        if artifacts:
             for artifact in artifacts:
                 raw_usage = artifact.get("usage")
                 usage = raw_usage if isinstance(raw_usage, dict) else {}
@@ -1374,8 +1409,6 @@ class ValueStore:
                     """,
                     (artifact["experiment"], _iso_epoch(completed_at)),
                 )
-            connection.commit()
-
     def _trace_sessions(
         self,
         trace_paths: Iterable[Path] | None = None,
@@ -1437,107 +1470,127 @@ class ValueStore:
         content_enabled, _ = self._prompt_storage_config()
         if not content_enabled:
             self._scrub_prompt_content()
-        trace_sessions, trace_signature = self._stable_trace_sessions()
-        self._chat_session_ids = {
-            str(chat_session_id)
-            for trace_session in trace_sessions.values()
-            for span in trace_session["spans"]
-            for attributes in [_attributes(span.get("attributes"))]
-            for chat_session_id in [
-                attributes.get("gen_ai.conversation.id")
-                or attributes.get("copilot_chat.chat_session_id")
-            ]
-            if chat_session_id
-        }
         with closing(self._connect()) as connection:
-            session_rows = connection.execute(
-                "SELECT experiment, started_at, completed_at, usage_json FROM sessions"
+            pending = connection.execute(
+                """SELECT * FROM indexing_work
+                WHERE requested_version > indexed_version AND next_attempt_at <= ?
+                ORDER BY last_attempt_at, pending_since, work_key LIMIT 16""", (time(),)
             ).fetchall()
-            known_session_starts = {
-                row["experiment"]: row["started_at"] for row in session_rows
-            }
-            known_sessions = set(known_session_starts)
-            known_session_ends = {
-                row["experiment"]: row["completed_at"] for row in session_rows
-            }
-            known_usage_sources = {}
-            for row in session_rows:
-                usage = _json_loads(row["usage_json"])
-                known_usage_sources[row["experiment"]] = (
-                    str(usage.get("source") or "") if isinstance(usage, dict) else ""
+        deadline = monotonic() + 5
+        completed = 0
+        for work in pending:
+            if monotonic() >= deadline:
+                break
+            try:
+                artifact, groups = (
+                    prepare_in_process(
+                        self.database_path, dict(work), content_enabled,
+                        self._chat_log_index, self._log_discovery_error,
+                    ) if self.isolate_log_io else self._prepare_index_work(work, content_enabled)
                 )
-            known_sessions_by_digest: dict[str, list[str]] = {}
-            for experiment in known_sessions:
-                digest = public_session_digest(experiment)
-                if digest:
-                    known_sessions_by_digest.setdefault(digest, []).append(experiment)
-            replacements: dict[str, list[dict[str, Any]]] = {}
-            for raw_session_id, trace_session in trace_sessions.items():
-                experiment = _public_session_id(raw_session_id, trace_session["start"])
-                if experiment not in known_sessions:
-                    digest_matches = known_sessions_by_digest.get(
-                        _session_digest(raw_session_id), []
-                    )
-                    if len(digest_matches) != 1:
-                        continue
-                    experiment = digest_matches[0]
-                stored_start = _iso_milliseconds(known_session_starts[experiment])
-                if stored_start > 0 and trace_session["start"] > stored_start:
-                    continue
-                direct_turns: list[dict[str, Any]] = []
-                if known_usage_sources[experiment] == "copilot_turn_log":
-                    session_start = _iso_milliseconds(known_session_starts[experiment])
-                    session_end = _iso_milliseconds(known_session_ends[experiment])
-                    for chat_session_id in conversation_ids(trace_session):
-                        path = self._chat_log_path(chat_session_id)
-                        if path:
-                            direct_turns.extend(
-                                {**turn, "conversation_id": chat_session_id}
-                                for turn in _read_copilot_turns(path, session_start, session_end)
-                            )
-                groups = group_prompts(
-                    trace_session,
-                    direct_turns,
-                    content_enabled,
-                )
-                if all(prompt_group_counters_valid(group) for group in groups):
-                    replacements[experiment] = groups
-
-            connection.execute("BEGIN IMMEDIATE")
-            for experiment, groups in replacements.items():
-                connection.execute("DELETE FROM prompts WHERE experiment = ?", (experiment,))
-                for group in groups:
+                with closing(self._connect()) as connection, connection:
+                    connection.execute("BEGIN IMMEDIATE")
+                    self._index_sessions(connection, [artifact])
+                    if groups is not None:
+                        write_prompts(connection, artifact["experiment"], groups)
+                    else:
+                        usage = artifact.get("usage")
+                        source = "copilot_turn_log" if isinstance(usage, dict) and usage.get("source") == "copilot_turn_log" else "otel_trace"
+                        connection.execute(
+                            "DELETE FROM prompts WHERE experiment = ? AND usage_source != ?",
+                            (artifact["experiment"], source),
+                        )
                     connection.execute(
-                        """
-                        INSERT INTO prompts (
-                            prompt_id, experiment, ordinal, started_at, content,
-                            captured_content_length, model_requests, tool_calls,
-                            input_tokens, cache_read_tokens, output_tokens,
-                            reasoning_tokens, ai_cost_usd, models_json,
-                            ai_credits, usage_source
-                        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-                        """,
-                        (
-                            _prompt_id(experiment, _nonnegative_integer(group["ordinal"]), group["started_at"]),
-                            experiment,
-                            _nonnegative_integer(group["ordinal"]),
-                            group["started_at"],
-                            group["content"],
-                            _nonnegative_integer(group["captured_content_length"]),
-                            _nonnegative_integer(group["model_requests"]),
-                            _nonnegative_integer(group["tool_calls"]),
-                            _nonnegative_integer(group["input_tokens"]),
-                            _nonnegative_integer(group["cache_read_tokens"]),
-                            _nonnegative_integer(group["output_tokens"]),
-                            _nonnegative_integer(group["reasoning_tokens"]),
-                            _number(group["ai_cost_usd"]),
-                            json.dumps(group["models"], separators=(",", ":")),
-                            _number(group["ai_credits"]),
-                            group["usage_source"],
-                        ),
+                        "UPDATE indexing_work SET experiment = ? WHERE work_key = ?",
+                        (artifact["experiment"], work["work_key"]),
                     )
-            connection.commit()
-        return trace_signature
+                    complete_work(connection, work)
+                completed += 1
+            except Exception as failure:
+                code = failure.code if isinstance(failure, IndexingBlocked) else "indexing_error"
+                with closing(self._connect()) as connection, connection:
+                    retry_work(connection, work, code)
+        return completed
+
+    def _prepare_index_work(
+        self, work: sqlite3.Row, content_enabled: bool,
+    ) -> tuple[dict[str, Any], list[dict[str, Any]] | None]:
+        with closing(self._connect()) as connection:
+            connection.execute("BEGIN")
+            candidates = connection.execute("SELECT file_name, experiment, error_code FROM indexing_artifacts").fetchall()
+            matches = [row for row in candidates if (
+                row["experiment"] == work["experiment"] if work["experiment"] else
+                public_session_digest(row["experiment"]) == work["session_digest"]
+            )]
+            if len(matches) != 1:
+                raise IndexingBlocked("waiting_for_artifact" if not matches else "ambiguous_artifact")
+            staged = matches[0]
+            if staged["error_code"]:
+                raise IndexingBlocked(staged["error_code"])
+            payload = connection.execute(
+                "SELECT payload_json FROM indexing_artifacts WHERE file_name = ?", (staged["file_name"],)
+            ).fetchone()[0]
+            artifact = _json_loads(payload)
+            if not isinstance(artifact, dict):
+                raise IndexingBlocked("invalid_artifact")
+            input_cursor = artifact.get("inboxCursor")
+            if work["session_id"] and input_cursor is None and isinstance(artifact.get("calculationVersion"), int):
+                raise IndexingBlocked("waiting_for_worker")
+            if input_cursor is not None and (
+                not isinstance(input_cursor, int) or isinstance(input_cursor, bool)
+                or input_cursor < work["latest_cursor"]
+            ):
+                raise IndexingBlocked("waiting_for_worker")
+            if not work["session_id"]:
+                return artifact, None
+            records = connection.execute("""
+                SELECT record_json FROM otel_records
+                WHERE session_id = ? AND cursor <= ? ORDER BY cursor
+            """, (work["session_id"], work["latest_cursor"]))
+            traces = collect_trace_sessions_from_records(_json_loads(row[0]) for row in records)
+        trace = traces.get(work["session_id"])
+        if trace is None:
+            raise IndexingBlocked("waiting_for_telemetry")
+        started = _iso_milliseconds(str(artifact.get("startedAt") or ""))
+        if started > 0 and trace["start"] > started:
+            raise IndexingBlocked("incomplete_retained_history")
+        usage = artifact.get("usage") or {}
+        direct_turns: list[dict[str, Any]] = []
+        if isinstance(usage, dict) and usage.get("source") == "copilot_turn_log":
+            if self._log_discovery_error:
+                raise IndexingBlocked(self._log_discovery_error)
+            ended = _iso_milliseconds(str(artifact.get("completedAt") or ""))
+            identifiers = conversation_ids(trace)
+            if not identifiers:
+                raise IndexingBlocked("waiting_for_logs")
+            for identifier in identifiers:
+                path = self._chat_log_path(identifier)
+                if path is None:
+                    raise IndexingBlocked("waiting_for_logs")
+                if self._chat_log_index[identifier][2] > MAX_DIRECT_LOG_BYTES:
+                    raise IndexingBlocked("log_size_limit")
+                turns = (
+                    isolated_log_io("turns", path, started, ended)
+                    if self.isolate_log_io else _read_copilot_turns(path, started, ended)
+                )
+                direct_turns.extend(
+                    {**turn, "conversation_id": identifier}
+                    for turn in turns
+                )
+        groups = group_prompts(trace, direct_turns, content_enabled)
+        if not all(prompt_group_counters_valid(group) for group in groups):
+            raise IndexingBlocked("invalid_prompt_counters")
+        if isinstance(usage, dict) and usage.get("source") == "copilot_turn_log" and input_cursor is not None:
+            counters = {
+                "model_requests": "chatSpans", "input_tokens": "inputTokens",
+                "cache_read_tokens": "cacheReadTokens", "output_tokens": "outputTokens",
+                "reasoning_tokens": "reasoningTokens",
+            }
+            if any(sum(group[field] for group in groups) != usage.get(key) for field, key in counters.items()):
+                raise IndexingBlocked("waiting_for_worker")
+            if not isclose(sum(group["ai_credits"] for group in groups), _number(usage.get("aiCredits")), rel_tol=1e-9, abs_tol=1e-9):
+                raise IndexingBlocked("waiting_for_worker")
+        return artifact, groups
 
     def _session_payload(
         self,

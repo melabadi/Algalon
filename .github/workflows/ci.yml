@@ -63,6 +63,12 @@ jobs:
       - name: Build React app
         run: npm run build --prefix web
 
+      - name: Verify persistent Collector retries
+        if: runner.os == 'Linux'
+        env:
+          ALGALON_DOCKER_TESTS: '1'
+        run: python -m unittest discover -s test -p test_collector_durability.py
+
       - name: Validate portable bundle construction
         run: python scripts/copilot_value.py bundle --skip-tests --output-directory .ci-artifacts
 

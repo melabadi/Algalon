@@ -62,6 +62,8 @@ class ReleaseVersionTests(unittest.TestCase):
             "uses: ./.github/workflows/security.yml",
             "needs: [test, security]",
             "needs: [bundle, linux-bundle-smoke]",
+            "ALGALON_DOCKER_TESTS: '1'",
+            "test_collector_durability.py",
             "smoke-bundle --skip-build --bundle artifacts/copilot-value-dashboard-${{ needs.bundle.outputs.version }}.pyz",
             "contents: write",
             "github.ref == 'refs/heads/main'",
@@ -88,6 +90,13 @@ class ReleaseVersionTests(unittest.TestCase):
                 if not action.startswith("./"):
                     with self.subTest(workflow=path.name, action=action):
                         self.assertRegex(action, r"^[^@]+@[0-9a-f]{40}$")
+
+    def test_large_indexing_reliability_check_is_repeatable(self) -> None:
+        workflow = (Path(__file__).resolve().parents[1] / ".github/workflows/indexing-reliability.yml").read_text(encoding="utf-8")
+        self.assertIn("schedule:", workflow)
+        self.assertIn("workflow_dispatch:", workflow)
+        self.assertIn("python -m scripts.indexing_reliability --spans 730000 --sessions 250 --updates 40", workflow)
+        self.assertNotIn("continue-on-error", workflow)
 
     def test_security_scans_fail_closed(self) -> None:
         workflow = (Path(__file__).resolve().parents[1] / ".github" / "workflows" / "security.yml").read_text(

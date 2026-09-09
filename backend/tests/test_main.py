@@ -10,6 +10,7 @@ import unittest
 from unittest.mock import AsyncMock, Mock, patch
 
 from starlette.testclient import TestClient
+from backend.app.indexing import IndexingBlocked
 
 
 class BackendAppTests(unittest.TestCase):
@@ -51,6 +52,7 @@ class BackendAppTests(unittest.TestCase):
 
     def setUp(self) -> None:
         self.store.reset_mock()
+        self.store.indexing_status.return_value = {"state": "current", "reason": None}
         self.main.indexing_failure = None
         self.main.indexing_started_at = None
 
@@ -140,6 +142,24 @@ class BackendAppTests(unittest.TestCase):
         self.store.ingest_otlp_traces.assert_called_once_with({"resourceSpans": []})
         self.assertEqual(page.json()["nextCursor"], 4)
         self.store.otel_records.assert_called_once_with(3, 10)
+
+    def test_indexing_status_and_backpressure_routes(self) -> None:
+        progress = {
+            "state": "blocked", "pendingSessions": 2, "blockedSessions": 1,
+            "oldestPendingSeconds": 61, "lastSuccessfulAt": None,
+            "lastDiscoveryAt": None, "reason": "invalid_prompt_counters",
+        }
+        self.store.indexing_status.return_value = progress
+        self.assertEqual(self.client.get("/api/indexing").json(), progress)
+        self.assertEqual(self.client.get("/api/health").status_code, 503)
+        self.store.ingest_otlp_traces.side_effect = IndexingBlocked("storage_pressure")
+        try:
+            response = self.client.post("/api/internal/otel/v1/traces", json={"resourceSpans": []})
+            self.assertEqual(response.status_code, 503)
+            self.assertEqual(response.headers["Retry-After"], "5")
+            self.assertEqual(response.json()["detail"]["reason"], "storage_pressure")
+        finally:
+            self.store.ingest_otlp_traces.side_effect = None
 
     def test_session_and_prompt_routes_cover_found_and_missing_records(self) -> None:
         self.store.session.side_effect = lambda experiment, scenario="base": (

@@ -1,6 +1,10 @@
 extensions:
   health_check:
     endpoint: ${env:OTEL_HEALTH_ENDPOINT}
+  file_storage/indexing_queue:
+    directory: ${env:VALUE_DATA_DIR}/otel/indexing-queue
+    create_directory: true
+    fsync: true
 
 receivers:
   otlp:
@@ -93,6 +97,7 @@ exporters:
     sending_queue:
       enabled: true
       queue_size: 10000
+      storage: file_storage/indexing_queue
   file/logs:
     path: ${env:VALUE_DATA_DIR}/otel/logs.json
     create_directory: true
@@ -102,11 +107,11 @@ exporters:
       max_backups: 30
 
 service:
-  extensions: [health_check]
+  extensions: [health_check, file_storage/indexing_queue]
   pipelines:
     traces:
       receivers: [otlp]
-      processors: [memory_limiter, transform/privacy, batch]
+      processors: [memory_limiter, transform/privacy]
       exporters: [otlp_http/algalon, span_metrics/copilot]
     metrics/storage:
       receivers: [otlp, span_metrics/copilot]
