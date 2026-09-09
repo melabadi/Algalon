@@ -53,8 +53,6 @@ def create_release_tree(root: Path) -> None:
         "web/package-lock.json",
         "web/src/App.tsx",
         "shared/benchmark.ts",
-        "docs/images/algalon-overall.png",
-        "docs/images/algalon-methodology.png",
     )
     for relative_path in required_paths:
         path = root / relative_path
@@ -63,6 +61,7 @@ def create_release_tree(root: Path) -> None:
         if relative_path == "config/otel-collector.yaml":
             content = "receivers:\n  otlp: {}\n"
         path.write_text(content, encoding="utf-8")
+    copilot_value.copy_release_path(Path(__file__).resolve().parents[1], root, "docs/images")
 
 
 class BundleConstructionTests(unittest.TestCase):
