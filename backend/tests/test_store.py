@@ -1815,6 +1815,122 @@ class ValueStoreTests(unittest.TestCase):
                 ["Retained prompt", "Second retained prompt"],
             )
 
+    def test_index_once_discovers_chat_logs_once_for_many_conversations(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            root = Path(temporary_directory)
+            workspace_storage = root / "workspace-storage"
+            direct_log = (
+                workspace_storage / "workspace" / "GitHub.copilot-chat"
+                / "debug-logs" / "conversation-0" / "main.jsonl"
+            )
+            direct_log.parent.mkdir(parents=True)
+            direct_log.write_text("{}\n", encoding="utf-8")
+            store = ValueStore(
+                root / "value.db", root / "sessions", root / "traces.json",
+                root / "config.json", workspace_storage,
+            )
+            store._chat_session_ids = {
+                f"conversation-{ordinal}" for ordinal in range(2_626)
+            }
+            original_glob = Path.glob
+            discovery_calls = 0
+
+            def counted_glob(path: Path, pattern: str):
+                nonlocal discovery_calls
+                if path == workspace_storage:
+                    discovery_calls += 1
+                    self.assertLessEqual(
+                        discovery_calls, 1,
+                        "A refresh must enumerate the log tree once, not per conversation",
+                    )
+                return original_glob(path, pattern)
+
+            with (
+                patch.object(Path, "glob", autospec=True, side_effect=counted_glob),
+                patch.object(store, "_index_prompts", return_value=()),
+            ):
+                store.index_once()
+                self.assertEqual(store._chat_log_path("conversation-0"), direct_log)
+                self.assertIsNone(store._chat_log_path("conversation-0-suffix"))
+                self.assertEqual(len(store._current_chat_log_signature()), 1)
+
+            self.assertEqual(discovery_calls, 1)
+
+    def test_chat_log_index_refreshes_new_changed_and_removed_logs(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            root = Path(temporary_directory)
+            workspace_storage = root / "workspace-storage"
+            store = ValueStore(
+                root / "value.db", root / "sessions", root / "traces.json",
+                root / "config.json", workspace_storage,
+            )
+            store._chat_session_ids = {"conversation"}
+            direct_logs = [
+                workspace_storage / workspace / "GitHub.copilot-chat"
+                / "debug-logs" / "conversation" / "main.jsonl"
+                for workspace in ("workspace-a", "workspace-b")
+            ]
+            with patch.object(store, "_index_prompts", return_value=()) as index_prompts:
+                store.index_once()
+                self.assertIsNone(store._chat_log_path("conversation"))
+                self.assertEqual(index_prompts.call_count, 1)
+
+                for path in reversed(direct_logs):
+                    path.parent.mkdir(parents=True)
+                    path.write_text("{}\n", encoding="utf-8")
+                store.index_once()
+                self.assertEqual(store._chat_log_path("conversation"), direct_logs[0])
+                self.assertEqual(index_prompts.call_count, 2)
+                store.index_once()
+                self.assertEqual(index_prompts.call_count, 2)
+
+                direct_logs[0].write_text("{}\n{}\n", encoding="utf-8")
+                store.index_once()
+                self.assertEqual(index_prompts.call_count, 3)
+
+                direct_logs[0].unlink()
+                store.index_once()
+                self.assertEqual(store._chat_log_path("conversation"), direct_logs[1])
+                self.assertEqual(index_prompts.call_count, 4)
+
+                direct_logs[1].unlink()
+                store.index_once()
+                self.assertIsNone(store._chat_log_path("conversation"))
+                self.assertEqual(store._current_chat_log_signature(), ())
+                self.assertEqual(index_prompts.call_count, 5)
+
+    def test_chat_log_growth_during_indexing_is_detected_on_next_pass(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            root = Path(temporary_directory)
+            workspace_storage = root / "workspace-storage"
+            direct_log = (
+                workspace_storage / "workspace" / "GitHub.copilot-chat"
+                / "debug-logs" / "conversation" / "main.jsonl"
+            )
+            direct_log.parent.mkdir(parents=True)
+            direct_log.write_text("{}\n", encoding="utf-8")
+            initial_size = direct_log.stat().st_size
+            store = ValueStore(
+                root / "value.db", root / "sessions", root / "traces.json",
+                root / "config.json", workspace_storage,
+            )
+            store._chat_session_ids = {"conversation"}
+
+            def grow_log() -> tuple:
+                direct_log.write_text("{}\n{}\n", encoding="utf-8")
+                return ()
+
+            with patch.object(store, "_index_prompts", side_effect=grow_log) as index_prompts:
+                store.index_once()
+                self.assertEqual(store._chat_log_signature[0][2], initial_size)
+                index_prompts.side_effect = None
+                index_prompts.return_value = ()
+                store.index_once()
+                self.assertEqual(store._chat_log_signature[0][2], initial_size * 2)
+                self.assertEqual(index_prompts.call_count, 2)
+                store.index_once()
+                self.assertEqual(index_prompts.call_count, 2)
+
     def test_indexes_direct_turn_when_request_and_conversation_are_on_separate_traces(self) -> None:
         with tempfile.TemporaryDirectory() as temporary_directory:
             root = Path(temporary_directory)

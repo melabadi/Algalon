@@ -250,6 +250,12 @@ Files shipped under `.copilot-value/`, including Dockerfiles, are replaced from 
 
 Run `status`. The React app retries transient API failures, but repeated refusal means the container runtime or host port forwarding is unavailable. On WSL-only Windows setups, run the repository `start` command so its keepalive is active rather than invoking detached Compose directly.
 
+### Prompt counts or token totals stop refreshing
+
+Session summaries and prompt rows are indexed separately. If an indexing pass runs for 60 seconds or longer, `http://127.0.0.1:3000/api/health` returns HTTP 503 with `component: indexing`, `reason: stale`, and `elapsedSeconds`. This reports delayed processing, not missing telemetry. Normal health returns after the pass completes successfully.
+
+The app discovers matching Copilot log paths once per indexing pass and reuses that snapshot for all conversations. New, changed, and removed logs are detected on the next pass. Upgrade an older installation with the latest verified PYZ to receive the bounded lookup behavior; retained inbox records rebuild the prompt index automatically. Do not delete telemetry or reset volumes to force a refresh.
+
 ### Docker builds cannot reach npm or PyPI
 
 If image construction reports TLS handshake failures for `registry.npmjs.org`, `pypi.org`, or `files.pythonhosted.org`, verify the Docker runtime's network, proxy, and trusted certificate configuration, then rerun `install`.
