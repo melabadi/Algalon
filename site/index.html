@@ -27,6 +27,7 @@
       <nav class="site-nav" aria-label="Primary navigation">
         <a href="#install">Get started</a>
         <a href="#features">The app</a>
+        <a href="#architecture">How it works</a>
         <a href="methodology.html">Methodology</a>
       </nav>
       <a class="header-link" href="https://github.com/melabadi/Algalon">GitHub</a>
@@ -67,6 +68,30 @@
             </details>
           </div>
           <div class="setup-links"><a href="https://github.com/melabadi/Algalon/blob/main/docs/local-deployment/README.md">Full installation guide</a><a href="https://github.com/melabadi/Algalon/security/policy">Security &amp; verification</a><span>One installation covers all your local repositories.</span></div>
+        </div>
+      </section>
+
+      <section class="architecture-overview" id="architecture" aria-labelledby="architecture-title">
+        <div class="section-inner">
+          <div class="section-heading split-heading">
+            <div><p class="eyebrow">Under the hood</p><h2 id="architecture-title">How Algalon works</h2></div>
+            <p>One Docker Compose stack receives Copilot telemetry from all your local repositories. Algalon's collection, storage, and calculation stay on your workstation; GitHub Copilot still uses its normal online services.</p>
+          </div>
+          <figure class="architecture-figure">
+            <div class="architecture-diagram" role="region" aria-label="Architecture diagram" tabindex="0"><img src="architecture.svg" width="1320" height="620" loading="lazy" alt="Copilot sends telemetry to the Collector, then FastAPI and SQLite. A TypeScript worker calculates value from the local inbox. React reads the FastAPI API. Aggregate metrics go to VictoriaMetrics and optional Grafana; matched VS Code logs are read-only inputs."></div>
+            <figcaption><span>Solid arrows show telemetry and results. Dashed arrows show optional read-only log access.</span><a href="architecture.svg">Open full diagram</a></figcaption>
+          </figure>
+          <ol class="architecture-steps">
+            <li><span>01</span><div><h3>Collect and scrub</h3><p>VS Code sends OTLP to the OpenTelemetry Collector on <code>127.0.0.1:4317/4318</code>. The Collector removes sensitive fields before forwarding traces to FastAPI.</p></div></li>
+            <li><span>02</span><div><h3>Keep a durable record</h3><p>FastAPI commits scrubbed spans to SQLite and deduplicates replays. A cursor lets the worker pick up new evidence, including late-arriving spans.</p></div></li>
+            <li><span>03</span><div><h3>Calculate locally</h3><p>The TypeScript worker groups sessions, allocates engaged time by phase, and applies the scenario model. Results are stored in local files and indexed by FastAPI.</p></div></li>
+            <li><span>04</span><div><h3>Inspect the results</h3><p>React reads FastAPI only, never VictoriaMetrics or raw trace archives. The worker also publishes aggregate metrics to VictoriaMetrics for optional Grafana views.</p></div></li>
+          </ol>
+          <div class="architecture-notes">
+            <p><strong>Local evidence, not a cloud service.</strong> Host ports bind to <code>127.0.0.1</code>. Matched VS Code turn logs are optional read-only inputs; unmatched usage falls back to OTel. Prompt text can be retained locally, but never becomes a metric label.</p>
+            <p><strong>Measured activity, modeled value.</strong> The worker never borrows source from the installation repository. Without matched retained-source evidence, coding benefit is zero. The <a href="methodology.html">methodology</a> explains the assumptions and limits.</p>
+          </div>
+          <p class="architecture-reference">This website is static and never connects to your local dashboard. <a href="https://github.com/melabadi/Algalon/blob/main/.github/modernize/assessment/engines/facts/architecture-diagram.md">Component reference</a></p>
         </div>
       </section>
 
