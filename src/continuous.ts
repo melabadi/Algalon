@@ -18,7 +18,7 @@ import {
   type SourceSnapshot
 } from './source-delta.js';
 
-export const SESSION_CALCULATION_VERSION = 8;
+export const SESSION_CALCULATION_VERSION = 9;
 
 export function modelConfigurationSignature(config: ValueConfig): string {
   return createHash('sha256').update(JSON.stringify({

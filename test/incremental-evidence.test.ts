@@ -60,6 +60,7 @@ test('resumes by byte cursor while accepting late spans and deduplicating rotati
     await writeFile(tracePath, jsonLine(newest));
 
     const initialCollector = new IncrementalTraceSessionCollector(tracePath, phasePatterns);
+    assert.equal(initialCollector.inboxCursor, undefined);
     const initial = await initialCollector.scan();
     assert.equal(initial.recordsRead, 1);
     assert.equal(initial.evidence[0]?.usage.chatSpans, 1);
@@ -96,6 +97,7 @@ test('advances a transactional OTLP inbox cursor across paged records', async ()
   const records = [traceRecord('first', 0), traceRecord('second', 10)];
   const request = async (input: string | URL | Request): Promise<Response> => {
     const url = new URL(String(input));
+    assert.equal(url.searchParams.get('limit'), '10000');
     const after = Number(url.searchParams.get('after'));
     return new Response(JSON.stringify(
       after === 0
@@ -110,6 +112,7 @@ test('advances a transactional OTLP inbox cursor across paged records', async ()
   );
 
   const initial = await collector.scan();
+  assert.equal(collector.inboxCursor, 1);
   assert.equal(initial.recordsRead, 1);
   assert.equal(initial.caughtUp, false);
   assert.equal(initial.evidence[0]?.usage.chatSpans, 1);
@@ -122,6 +125,7 @@ test('advances a transactional OTLP inbox cursor across paged records', async ()
     'http://app:8000/api/internal/otel/records', phasePatterns, state, undefined, request
   );
   const completed = await resumed.scan();
+  assert.equal(resumed.inboxCursor, 2);
   assert.equal(completed.recordsRead, 1);
   assert.equal(completed.caughtUp, true);
   assert.equal(completed.evidence[0]?.usage.chatSpans, 2);
@@ -138,7 +142,10 @@ test('advances a transactional OTLP inbox cursor across paged records', async ()
     undefined,
     request,
   );
-  const idle = await idleCollector.scan();
+  const idle = await idleCollector.scan(false);
+  assert.deepEqual(idle.evidence, []);
+  assert.equal(idleCollector.evidence(new Set(['session-a']))[0]?.usage.chatSpans, 2);
+  assert.equal(idleCollector.inboxCursor, 2);
   assert.equal(idle.recordsRead, 0);
   assert.equal(idle.caughtUp, true);
   assert.equal(idle.stateChanged, false);

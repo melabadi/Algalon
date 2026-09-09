@@ -3,6 +3,17 @@ export const en = {
   shell: {
     brand: 'Algalon',
     localEvidenceCurrent: 'Local evidence current',
+    indexingStatus: 'Indexing status',
+    indexingRetry: 'Retry indexing status',
+    indexingNotYet: 'Not yet',
+    indexingStates: {
+      current: 'Index current',
+      catching_up: 'Catching up',
+      blocked: 'Indexing blocked',
+      unavailable: 'Index status unavailable',
+      checking: 'Checking index',
+    },
+    indexingDetail: (pending: number, oldest: number, successful: string) => `${pending} pending; oldest ${oldest.toFixed(1)}s; last success: ${successful}`,
     scenario: 'Scenario',
     customScenario: (name: string) => `Scenario · Custom: ${name}`,
     roiScenario: 'ROI scenario',

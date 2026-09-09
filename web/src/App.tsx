@@ -3,7 +3,6 @@ import {
   Activity,
   BarChart3,
   BookOpen,
-  CheckCircle2,
   ChevronRight,
   MessageSquareText,
   RefreshCw,
@@ -21,6 +20,7 @@ import { MethodologyView } from './features/methodology/MethodologyView';
 import { InsightsView } from './features/insights/InsightsView';
 import { OverallView, PromptView, PromptsView, SessionView } from './features/sessions/SessionViews';
 import { AutoRefreshContext } from './hooks/useLoad';
+import { IndexingStatus } from './components/IndexingStatus';
 import { messages } from './i18n';
 import { scenarioLabel } from './lib/format';
 import { pagePath, parsePage } from './lib/routes';
@@ -123,7 +123,7 @@ export function App() {
     <main className="app-shell">
       <header className="topbar">
         <button className="brand" onClick={() => navigate({ name: 'overall' })}><span className="brand-mark" />{messages.shell.brand}</button>
-        <span className="local-status"><CheckCircle2 size={13} />{messages.shell.localEvidenceCurrent}</span>
+        <AutoRefreshContext.Provider value={5_000}><IndexingStatus /></AutoRefreshContext.Provider>
         <div className="scenario-selector"><span className="control-label">{activeCalibration ? messages.shell.customScenario(activeCalibration.name) : messages.shell.scenario}</span><div className="scenario-control" role="group" aria-label={messages.shell.roiScenario}>{scenarioSelections.map((name) => <button key={name} className={selectedScenario === name ? 'active' : ''} disabled={name === 'custom' && !activeCalibration} title={name === 'custom' && !activeCalibration ? messages.shell.chooseCalibration : undefined} onClick={() => setScenario(name)}>{scenarioLabel(name)}</button>)}</div></div>
         <select className="range-select" value={days} onChange={(event) => setDays(Number(event.target.value))} aria-label={messages.shell.timeRange}>{messages.shell.ranges.map((range) => <option key={range.days} value={range.days}>{range.label}</option>)}</select>
         <label className="refresh-control"><RefreshCw size={14} aria-hidden="true" /><select value={refreshSeconds} onChange={(event) => setRefreshSeconds(Number(event.target.value) as RefreshSeconds)} aria-label={messages.shell.autoRefreshInterval}>{refreshOptions.map((option) => <option key={option.seconds} value={option.seconds}>{option.label}</option>)}</select></label>

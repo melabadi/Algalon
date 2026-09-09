@@ -7,6 +7,7 @@ import tempfile
 import unittest
 from unittest.mock import patch
 
+from backend.app.indexing import enqueue_session
 from backend.app.prompt_index import group_prompts
 from backend.app.store import (
     CURRENT_FORMULA_VERSION,
@@ -528,14 +529,19 @@ class ValueStoreTests(unittest.TestCase):
                 "ai_credits": 1,
                 "usage_source": "otel_trace",
             }
-            trace_sessions = {
-                raw_session_id: {"start": started_ms, "end": started_ms + 60_000, "spans": []}
-            }
-            with (
-                patch.object(store, "_stable_trace_sessions", return_value=(trace_sessions, ())),
-                patch("backend.app.store.group_prompts", return_value=[group]),
-            ):
-                store._index_prompts()
+            store.ingest_otlp_traces({"resourceSpans": [{
+                "resource": {"attributes": [
+                    attribute("service.name", "copilot-chat"),
+                    attribute("session.id", raw_session_id),
+                ]},
+                "scopeSpans": [{"spans": [{
+                    "spanId": "counter-span", "traceId": "counter-trace",
+                    "name": "chat model-a", "startTimeUnixNano": str(started_ms * 1_000_000),
+                    "attributes": [],
+                }]}],
+            }]})
+            with patch("backend.app.store.group_prompts", return_value=[group]):
+                store.index_once()
 
             prompt = store.prompts(experiment)[0]
             self.assertIsNone(prompt["modelRequests"])
@@ -552,14 +558,13 @@ class ValueStoreTests(unittest.TestCase):
             self.assertEqual(prompt["modelsExact"]["model-a"], str(2**53 + 1))
 
             original_prompts = store.prompts(experiment)
-            with (
-                patch.object(store, "_stable_trace_sessions", return_value=(trace_sessions, ())),
-                patch(
-                    "backend.app.store.group_prompts",
-                    return_value=[{**group, "input_tokens": None}],
-                ),
+            with closing(store._connect()) as connection, connection:
+                enqueue_session(connection, raw_session_id)
+            with patch(
+                "backend.app.store.group_prompts",
+                return_value=[{**group, "input_tokens": None}],
             ):
-                store._index_prompts()
+                store.index_once()
 
             self.assertEqual(store.prompts(experiment), original_prompts)
 
@@ -855,6 +860,7 @@ class ValueStoreTests(unittest.TestCase):
             store.index_once()
 
             valid_session = store.session("valid-benchmark")
+            store.index_once()
             self.assertIsNotNone(_validated_current_benchmark(
                 valid_benchmark,
                 usage={
@@ -1865,39 +1871,49 @@ class ValueStoreTests(unittest.TestCase):
                 root / "config.json", workspace_storage,
             )
             store._chat_session_ids = {"conversation"}
+            with closing(store._connect()) as connection, connection:
+                enqueue_session(connection, "raw-log-session")
+                connection.execute("INSERT INTO indexing_conversations VALUES ('raw-log-session', 'conversation')")
+
+            def requested_version() -> int:
+                with closing(store._connect()) as connection:
+                    return connection.execute(
+                        "SELECT requested_version FROM indexing_work WHERE session_id = 'raw-log-session'"
+                    ).fetchone()[0]
+
             direct_logs = [
                 workspace_storage / workspace / "GitHub.copilot-chat"
                 / "debug-logs" / "conversation" / "main.jsonl"
                 for workspace in ("workspace-a", "workspace-b")
             ]
-            with patch.object(store, "_index_prompts", return_value=()) as index_prompts:
+            with patch.object(store, "_index_prompts", return_value=()):
                 store.index_once()
                 self.assertIsNone(store._chat_log_path("conversation"))
-                self.assertEqual(index_prompts.call_count, 1)
+                initial_version = requested_version()
 
                 for path in reversed(direct_logs):
                     path.parent.mkdir(parents=True)
                     path.write_text("{}\n", encoding="utf-8")
                 store.index_once()
                 self.assertEqual(store._chat_log_path("conversation"), direct_logs[0])
-                self.assertEqual(index_prompts.call_count, 2)
+                self.assertEqual(requested_version(), initial_version + 1)
                 store.index_once()
-                self.assertEqual(index_prompts.call_count, 2)
+                self.assertEqual(requested_version(), initial_version + 1)
 
                 direct_logs[0].write_text("{}\n{}\n", encoding="utf-8")
                 store.index_once()
-                self.assertEqual(index_prompts.call_count, 3)
+                self.assertEqual(requested_version(), initial_version + 2)
 
                 direct_logs[0].unlink()
                 store.index_once()
                 self.assertEqual(store._chat_log_path("conversation"), direct_logs[1])
-                self.assertEqual(index_prompts.call_count, 4)
+                self.assertEqual(requested_version(), initial_version + 3)
 
                 direct_logs[1].unlink()
                 store.index_once()
                 self.assertIsNone(store._chat_log_path("conversation"))
                 self.assertEqual(store._current_chat_log_signature(), ())
-                self.assertEqual(index_prompts.call_count, 5)
+                self.assertEqual(requested_version(), initial_version + 4)
 
     def test_chat_log_growth_during_indexing_is_detected_on_next_pass(self) -> None:
         with tempfile.TemporaryDirectory() as temporary_directory:
@@ -1929,7 +1945,7 @@ class ValueStoreTests(unittest.TestCase):
                 self.assertEqual(store._chat_log_signature[0][2], initial_size * 2)
                 self.assertEqual(index_prompts.call_count, 2)
                 store.index_once()
-                self.assertEqual(index_prompts.call_count, 2)
+                self.assertEqual(store._chat_log_signature[0][2], initial_size * 2)
 
     def test_indexes_direct_turn_when_request_and_conversation_are_on_separate_traces(self) -> None:
         with tempfile.TemporaryDirectory() as temporary_directory:
@@ -2356,11 +2372,12 @@ class ValueStoreTests(unittest.TestCase):
             )
             with patch.object(
                 store,
-                "_stable_trace_sessions",
+                "_prepare_index_work",
                 side_effect=RuntimeError("unstable trace archive"),
             ):
-                with self.assertRaisesRegex(RuntimeError, "unstable trace archive"):
-                    store._index_prompts()
+                store.index_once()
+            self.assertEqual(store.indexing_status()["state"], "blocked")
+            self.assertEqual(store.indexing_status()["reason"], "indexing_error")
             disabled_prompts = store.prompts(experiment)
             self.assertFalse(disabled_prompts[0]["contentAvailable"])
             self.assertEqual(disabled_prompts[0]["content"], "")

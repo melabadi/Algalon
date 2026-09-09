@@ -53,6 +53,10 @@ export function handleMockApiRequest(method: string, requestUrl: string): MockAp
   if (method !== 'GET' && method !== 'HEAD') return error('method not allowed', 405);
 
   if (url.pathname === '/api/health') return response({ status: 'ok', mode: 'mock' });
+  if (url.pathname === '/api/indexing') return response({
+    state: 'current', pendingSessions: 0, blockedSessions: 0, oldestPendingSeconds: 0,
+    lastSuccessfulAt: null, lastDiscoveryAt: null, reason: null,
+  });
   if (url.pathname === '/api/methodology') return response(mockMethodology);
   if (url.pathname === '/api/export.csv') {
     return {

@@ -505,12 +505,16 @@ function installFetch(options: {
 } = {}) {
   let remainingFailures = options.failOnce ? 1 : 0;
   const fetchMock = vi.fn(async (input: string | URL | Request) => {
+    const rawUrl = typeof input === 'string' ? input : input instanceof URL ? input.toString() : input.url;
+    const url = new URL(rawUrl, 'http://localhost');
+    if (url.pathname === '/api/indexing') return jsonResponse({
+      state: 'current', pendingSessions: 0, blockedSessions: 0, oldestPendingSeconds: 0,
+      lastSuccessfulAt: null, lastDiscoveryAt: null, reason: null,
+    });
     if (remainingFailures > 0) {
       remainingFailures -= 1;
       throw new Error('temporary API failure');
     }
-    const rawUrl = typeof input === 'string' ? input : input instanceof URL ? input.toString() : input.url;
-    const url = new URL(rawUrl, 'http://localhost');
     if (url.pathname === '/api/overview') {
       const scenario = (url.searchParams.get('scenario') ?? 'base') as Scenario;
       return jsonResponse(createOverview(
@@ -935,7 +939,7 @@ describe('methodology and navigation', () => {
 
     await user.click(screen.getByRole('button', { name: 'Custom' }));
 
-    expect(await screen.findByRole('status')).toHaveTextContent('Modeled values are unavailable');
+    expect(await screen.findByRole('status', { name: '' })).toHaveTextContent('Modeled values are unavailable');
     const manualTime = screen.getByText('Manual-only time').closest('.kpi');
     const assistedTime = screen.getByText('AI-assisted time').closest('.kpi');
     expect(manualTime).not.toBeNull();
@@ -950,7 +954,7 @@ describe('methodology and navigation', () => {
     installFetch({ overviewStatus: 'invalid' });
     await renderRoute('/');
 
-    expect(await screen.findByRole('status')).toHaveTextContent(
+    expect(await screen.findByRole('status', { name: '' })).toHaveTextContent(
       'selected model inputs or session evidence are invalid'
     );
     const manualTime = screen.getByText('Manual-only time').closest('.kpi');
@@ -987,7 +991,7 @@ describe('methodology and navigation', () => {
     installFetch({ sessionValue: invalidSession });
     await renderRoute('/sessions/session-a');
 
-    expect(await screen.findByRole('status')).toHaveTextContent(
+    expect(await screen.findByRole('status', { name: '' })).toHaveTextContent(
       'selected model inputs or session evidence are invalid'
     );
     const manualTime = screen.getByText('Manual-only time').closest('.kpi');
@@ -1024,7 +1028,7 @@ describe('methodology and navigation', () => {
 
     await user.click(screen.getByRole('button', { name: 'Custom' }));
 
-    expect(await screen.findByRole('status')).toHaveTextContent(
+    expect(await screen.findByRole('status', { name: '' })).toHaveTextContent(
       'no eligible modeled session evidence is available'
     );
     const manualTime = screen.getByText('Manual-only time').closest('.kpi');
@@ -1187,7 +1191,7 @@ describe('methodology and navigation', () => {
     installFetch({ insightsValue: degradedInsights });
     await renderRoute('/insights');
 
-    expect(await screen.findByRole('status')).toHaveTextContent('Integrity gate failed: 3 of 4');
+    expect(await screen.findByRole('status', { name: '' })).toHaveTextContent('Integrity gate failed: 3 of 4');
     expect(screen.getByText(/Every settled session must carry the complete authoritative usage contract/)).toBeVisible();
     const cacheRow = screen.getByText('Session cache reuse').closest('tr');
     expect(cacheRow).not.toBeNull();
@@ -1250,7 +1254,7 @@ describe('methodology and navigation', () => {
     await user.type(planningFraction, '0.3');
     await user.type(screen.getByRole('textbox', { name: 'Calibration name' }), 'Backend bug fixes');
     await user.click(saveCalibration);
-    expect(screen.getByRole('status')).toHaveTextContent('Preset values were not changed');
+    expect(screen.getByRole('status', { name: '' })).toHaveTextContent('Preset values were not changed');
     expect(JSON.parse(window.localStorage.getItem('algalon.savedCalibrations.v1') ?? '[]')).toHaveLength(1);
 
     await user.click(screen.getByRole('button', { name: 'New from presets' }));

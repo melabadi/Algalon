@@ -5,6 +5,7 @@ from contextlib import asynccontextmanager
 import logging
 import os
 from pathlib import Path
+import sqlite3
 from time import monotonic
 
 from fastapi import FastAPI, HTTPException, Query, Request
@@ -13,6 +14,7 @@ from fastapi.staticfiles import StaticFiles
 from starlette.exceptions import HTTPException as StarletteHTTPException
 
 from .csv_export import build_csv_export
+from .indexing import IndexingBlocked
 from .store import SCENARIOS, ValueStore
 
 
@@ -22,7 +24,7 @@ trace_archive = Path(os.environ.get("COPILOT_VALUE_TRACE_ARCHIVE", "/data/otel/t
 chat_log_root = Path(os.environ.get("COPILOT_VALUE_CHAT_LOG_ROOT", "/vscode-workspace-storage"))
 config_path = Path(os.environ.get("COPILOT_VALUE_CONFIG", "/app/config/value-model.local.json"))
 static_directory = Path(os.environ.get("COPILOT_VALUE_STATIC_DIR", "/app/static"))
-store = ValueStore(database_path, session_directory, trace_archive, config_path, chat_log_root)
+store = ValueStore(database_path, session_directory, trace_archive, config_path, chat_log_root, isolate_log_io=True)
 logger = logging.getLogger(__name__)
 indexing_failure: str | None = None
 indexing_started_at: float | None = None
@@ -86,7 +88,17 @@ def health():
                     "elapsedSeconds": round(elapsed_seconds, 1),
                 },
             )
+    progress = store.indexing_status()
+    if progress["state"] == "blocked":
+        return JSONResponse(status_code=503, content={
+            "status": "degraded", "component": "indexing", "reason": progress["reason"],
+        })
     return {"status": "ok"}
+
+
+@app.get("/api/indexing")
+def indexing(experiment: str | None = None) -> dict:
+    return store.indexing_status(experiment)
 
 
 @app.post("/api/internal/otel/v1/traces", include_in_schema=False)
@@ -96,6 +108,12 @@ def ingest_otel_traces(payload: dict) -> dict:
         return {}
     except ValueError as error:
         raise HTTPException(status_code=400, detail=str(error)) from error
+    except (IndexingBlocked, sqlite3.DatabaseError, OSError) as error:
+        reason = error.code if isinstance(error, IndexingBlocked) else "storage_unavailable"
+        raise HTTPException(
+            status_code=503, detail={"component": "ingestion", "reason": reason},
+            headers={"Retry-After": "5"},
+        ) from error
 
 
 @app.get("/api/internal/otel/records", include_in_schema=False)

@@ -1,6 +1,16 @@
 export type Scenario = 'pessimistic' | 'base' | 'optimistic';
 export type ModelingStatus = 'available' | 'unavailable' | 'invalid';
 
+export interface IndexingProgress {
+  state: 'current' | 'catching_up' | 'blocked';
+  pendingSessions: number;
+  blockedSessions: number;
+  oldestPendingSeconds: number;
+  lastSuccessfulAt: string | null;
+  lastDiscoveryAt: string | null;
+  reason: string | null;
+}
+
 export interface PhaseScenario {
   measuredAiMinutes: number;
   measuredAiSeconds: number;

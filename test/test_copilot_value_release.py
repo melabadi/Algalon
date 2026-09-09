@@ -75,6 +75,10 @@ class BundleConstructionTests(unittest.TestCase):
         )
 
         self.assertIn("otlp_http/algalon:", collector)
+        self.assertIn("storage: file_storage/indexing_queue", collector)
+        self.assertIn("extensions: [health_check, file_storage/indexing_queue]", collector)
+        self.assertIn("fsync: true", collector)
+        self.assertIn("processors: [memory_limiter, transform/privacy]", collector)
         self.assertIn(
             "traces_endpoint: http://app:8000/api/internal/otel/v1/traces",
             collector,
