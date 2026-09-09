@@ -106,6 +106,9 @@ class ReleaseVersionTests(unittest.TestCase):
             self.assertIn(required, workflow)
         self.assertNotIn("continue-on-error", workflow)
         self.assertNotIn("|| true", workflow)
+        codeql_revisions = re.findall(r"uses: github/codeql-action/(?:init|analyze)@([0-9a-f]{40})", workflow)
+        self.assertEqual(len(codeql_revisions), 2)
+        self.assertEqual(len(set(codeql_revisions)), 1)
 
 
 if __name__ == "__main__":
