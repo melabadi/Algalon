@@ -171,7 +171,7 @@ python -m scripts.indexing_reliability --spans 730000 --sessions 250 --updates 4
 
 This starts the real API and TypeScript worker on temporary loopback endpoints with an isolated SQLite database and a local metrics sink. It checks retained-history catch-up, continuing updates, API/worker restart, and exact final prompt totals. The proposed live-update limits are p95 at most 30 seconds and p99 at most 60 seconds after initial catch-up, under the reported synthetic workload; they are release acceptance targets, not a guarantee for arbitrary hardware, workload, or upstream outages. Collector privacy and persisted exporter delivery are validated separately with the container smoke checks.
 
-Use `python scripts/copilot_value.py bundle` for a release build and `python scripts/copilot_value.py smoke-bundle --skip-build` to validate the exact generated artifact. The full smoke requires Docker and temporarily occupies the product ports.
+Use `python scripts/copilot_value.py bundle` for a release build and `python scripts/copilot_value.py smoke-bundle --skip-build` to validate the exact generated artifact. The full smoke requires Docker and temporarily occupies the product ports. CI extends that exact-artifact smoke on a fresh Ubuntu runner: it backfills synthetic sessions through OTLP, opens the packaged application with Playwright, exercises range and scenario controls, and drills from the portfolio into retained prompt evidence at desktop and mobile sizes.
 
 Generated `node_modules/`, `dist/`, `web/dist/`, `data/`, local configuration, Compose `.env`, and release `artifacts/` are ignored and may be regenerated. Keep the current release artifacts only when they are needed for distribution or smoke testing.
 
@@ -572,9 +572,10 @@ The bundle smoke test extracts the zip into a temporary repository's `.copilot-v
 - automatic per-session ROI publication and VictoriaMetrics queryability;
 - FastAPI/SQLite indexing of the synthetic session and prompt content;
 - compiled React delivery and application health on port `3000`;
+- fresh-runner Playwright navigation over synthetic 14-day and 21-day backfill, including time-range filtering, scenario selection, session search, and prompt drill-down;
 - clean shutdown and restoration of the development stack.
 
-CI runs tests on Windows, macOS, and Linux. It validates the extracted bundle on Windows and boots the packaged Docker stack on Linux for synthetic OTel session measurement before uploading the platform-neutral zip and checksum.
+CI runs tests on Windows, macOS, and Linux. It validates the extracted bundle on Windows and installs the packaged Docker stack on a fresh Linux runner for synthetic OTel session measurement and the Playwright user journey before uploading the platform-neutral zip and checksum. A browser failure retains a screenshot as a workflow artifact.
 
 Every successful push to `main` also creates a GitHub Release. CI reads the highest stable `vMAJOR.MINOR.PATCH` tag, increments its patch component (using `package.json` as the floor), stamps that version into the build, and publishes the exact `.pyz`, `.zip`, and both SHA-256 files that passed the Windows and Linux smoke tests. The version is applied only to the release build and tag; CI does not create a recursive version-bump commit.
 

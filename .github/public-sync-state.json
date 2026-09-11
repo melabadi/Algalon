@@ -2,7 +2,7 @@
   "files": {
     "README.md": {
       "mode": "100644",
-      "sha256": "693f6f9532b447433ba375ba85cc415eacad7fb386b765fd249d2e9b0049d476"
+      "sha256": "cf3476eed174db26fe34871524028c4f2675f3e407eaf50da1214ad8f9bad3dd"
     },
     "SECURITY.md": {
       "mode": "100644",
@@ -182,7 +182,7 @@
     },
     "scripts/copilot_value.py": {
       "mode": "100644",
-      "sha256": "7a07866829e4f4e6b0d7a078f6f6a1fa755b593531d31d58b49c9e25007fc01b"
+      "sha256": "2ab45f7fd150ab396c39b3a2353624285f753a7ac4699e4d91dd6d438dd3cc40"
     },
     "scripts/docker_runtime.py": {
       "mode": "100644",
@@ -364,6 +364,10 @@
       "mode": "100644",
       "sha256": "03fc531c456843ce3ec81b153260b2f62a0ede2133398452d9a00746a338f7df"
     },
+    "test/release_user_journey.py": {
+      "mode": "100644",
+      "sha256": "5684bd2234bb8740ac9e95440a00bf1467dfe658fb6f3164713e088e5c0b7f75"
+    },
     "test/schema.test.ts": {
       "mode": "100644",
       "sha256": "0006b373150fb296295be0c44e9804fb8e0c71deafc51b92b3ae6c32f433d753"
@@ -398,7 +402,7 @@
     },
     "test/test_release_smoke_transport.py": {
       "mode": "100644",
-      "sha256": "ad98056ca2b9b6945b9dee0b2877b1efefdfc7a3062e44c5d330cfa49ac17ca8"
+      "sha256": "31d416c7d158ce920d5b702817c387ff1db28ef44d1e3d7e39d4f5bdaea65536"
     },
     "tsconfig.json": {
       "mode": "100644",

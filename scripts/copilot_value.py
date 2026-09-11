@@ -1198,8 +1198,13 @@ def command_smoke_installation(arguments: argparse.Namespace) -> int:
             shutil.rmtree(temporary_target, ignore_errors=True)
 
 
-def command_smoke_bundle(arguments: argparse.Namespace) -> int:
+def command_smoke_bundle(
+    arguments: argparse.Namespace,
+    after_telemetry_smoke: Callable[[], None] | None = None,
+) -> int:
     project_root = install_root()
+    if after_telemetry_smoke is not None and arguments.skip_telemetry:
+        raise CopilotValueError("A post-telemetry check requires the Docker stack.")
     package = json.loads((project_root / "package.json").read_text(encoding="utf-8"))
     if arguments.bundle:
         bundle_path = Path(arguments.bundle).expanduser()
@@ -1271,6 +1276,8 @@ def command_smoke_bundle(arguments: argparse.Namespace) -> int:
             run_checked((sys.executable, str(extracted_cli), "start"))
             time.sleep(3)
             run_checked((sys.executable, str(extracted_cli), "smoke-installation", "--telemetry"))
+            if after_telemetry_smoke is not None:
+                after_telemetry_smoke()
 
         print(f"Release bundle smoke passed: {bundle_path}")
         if arguments.keep_extracted:
