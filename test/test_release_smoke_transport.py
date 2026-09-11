@@ -44,6 +44,7 @@ class ReleaseSmokeTransportTests(unittest.TestCase):
             extraction = Path(temporary_directory) / "extraction"
             runtime = Mock()
             runtime.run.return_value = subprocess.CompletedProcess([], 0, stdout="")
+            user_journey = Mock()
             arguments = argparse.Namespace(
                 bundle=str(bundle),
                 skip_build=True,
@@ -59,7 +60,10 @@ class ReleaseSmokeTransportTests(unittest.TestCase):
                 patch.object(copilot_value, "compose"),
                 patch.object(copilot_value.time, "sleep"),
             ):
-                self.assertEqual(copilot_value.command_smoke_bundle(arguments), 0)
+                self.assertEqual(
+                    copilot_value.command_smoke_bundle(arguments, user_journey),
+                    0,
+                )
 
             commands = [invocation.args[0] for invocation in run_checked.call_args_list]
             self.assertEqual(len(commands), 3)
@@ -69,9 +73,18 @@ class ReleaseSmokeTransportTests(unittest.TestCase):
             self.assertIn("--no-start", commands[0])
             self.assertEqual(commands[1][-1], "start")
             self.assertEqual(commands[2][-1], "--telemetry")
+            user_journey.assert_called_once_with()
             runtime.release_wsl_keepalive.assert_called_once_with(
                 extraction / "repository" / ".copilot-value"
             )
+
+    def test_user_journey_requires_telemetry(self) -> None:
+        arguments = argparse.Namespace(skip_telemetry=True)
+        with self.assertRaisesRegex(
+            copilot_value.CopilotValueError,
+            "requires the Docker stack",
+        ):
+            copilot_value.command_smoke_bundle(arguments, Mock())
 
 
 if __name__ == "__main__":
