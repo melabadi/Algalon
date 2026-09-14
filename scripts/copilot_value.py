@@ -212,6 +212,7 @@ def compose(
     check: bool = True,
     input_text: str | None = None,
 ) -> subprocess.CompletedProcess[str]:
+    refresh_workspace_storage_mount(runtime, root)
     compose_path = runtime.docker_path(root / "docker" / "compose.yaml")
     environment_path = runtime.docker_path(root / "docker" / ".env")
     return runtime.run(
@@ -499,6 +500,24 @@ def vscode_workspace_storage_paths(
         for settings_path in (settings_paths or vscode_user_settings_paths())
     ]
     return [path for path in candidates if path.is_dir()]
+
+
+def refresh_workspace_storage_mount(runtime: DockerRuntime, root: Path) -> None:
+    environment_path = root / "docker" / ".env"
+    environment = read_environment(environment_path)
+    if "VSCODE_WORKSPACE_STORAGE_PATH" not in environment:
+        return
+    workspace_storage_paths = vscode_workspace_storage_paths()
+    workspace_storage_path = (
+        workspace_storage_paths[0]
+        if workspace_storage_paths
+        else root / "data" / "vscode-workspace-storage-empty"
+    )
+    workspace_storage_mount = runtime.docker_path(workspace_storage_path)
+    if environment["VSCODE_WORKSPACE_STORAGE_PATH"] == workspace_storage_mount:
+        return
+    environment["VSCODE_WORKSPACE_STORAGE_PATH"] = workspace_storage_mount
+    write_environment(environment_path, environment)
 
 
 def configure_vscode_user_settings(settings_path: Path, backup_root: Path) -> None:

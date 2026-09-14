@@ -174,6 +174,41 @@ class DeploymentHelperTests(unittest.TestCase):
         runtime.run.return_value = subprocess.CompletedProcess([], 1, stdout="")
         self.assertFalse(copilot_value.existing_installation_running(runtime, root))
 
+    def test_compose_refreshes_workspace_mount_for_current_runtime(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            root = Path(temporary_directory) / "installation"
+            workspace_storage = Path(temporary_directory) / "workspaceStorage"
+            (root / "docker").mkdir(parents=True)
+            workspace_storage.mkdir()
+            copilot_value.write_environment(
+                root / "docker" / ".env",
+                {
+                    "COMPOSE_PROJECT_NAME": "copilot-value-test",
+                    "VSCODE_WORKSPACE_STORAGE_PATH": "C:/Users/example/workspaceStorage",
+                },
+            )
+            runtime = Mock()
+            runtime.docker_path.side_effect = lambda path: (
+                "/mnt/c/Users/example/workspaceStorage"
+                if path == workspace_storage
+                else f"docker:{path.name}"
+            )
+            runtime.run.return_value = subprocess.CompletedProcess([], 0, stdout="")
+
+            with patch.object(
+                copilot_value,
+                "vscode_workspace_storage_paths",
+                return_value=[workspace_storage],
+            ):
+                copilot_value.compose(runtime, root, ("config", "--quiet"))
+
+            environment = copilot_value.read_environment(root / "docker" / ".env")
+            self.assertEqual(environment["COMPOSE_PROJECT_NAME"], "copilot-value-test")
+            self.assertEqual(
+                environment["VSCODE_WORKSPACE_STORAGE_PATH"],
+                "/mnt/c/Users/example/workspaceStorage",
+            )
+
 
 class HealthAndGrafanaTests(unittest.TestCase):
     def test_health_helpers_handle_success_failure_and_timeout(self) -> None:

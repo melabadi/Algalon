@@ -182,7 +182,7 @@
     },
     "scripts/copilot_value.py": {
       "mode": "100644",
-      "sha256": "2ab45f7fd150ab396c39b3a2353624285f753a7ac4699e4d91dd6d438dd3cc40"
+      "sha256": "2f6d709ee8771d09a6094ea4ddd691bb9503d07784e25729e5c3fa39d782ba96"
     },
     "scripts/docker_runtime.py": {
       "mode": "100644",
@@ -390,7 +390,7 @@
     },
     "test/test_copilot_value_runtime.py": {
       "mode": "100644",
-      "sha256": "1fb3eb6555c6b95978ce04b60775f60868cd39f352bda52d31345e5893457f20"
+      "sha256": "cd8b016c6d2e4ffbd98d4a50fbd03fe592b5aa101d1c7b69fc9b0e89e416528b"
     },
     "test/test_indexing_pipeline.py": {
       "mode": "100644",
