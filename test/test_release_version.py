@@ -64,7 +64,10 @@ class ReleaseVersionTests(unittest.TestCase):
             "needs: [bundle, linux-bundle-smoke]",
             "ALGALON_DOCKER_TESTS: '1'",
             "test_collector_durability.py",
-            "smoke-bundle --skip-build --bundle artifacts/copilot-value-dashboard-${{ needs.bundle.outputs.version }}.pyz",
+            "python -m pip install playwright==1.62.0",
+            "python -m playwright install --with-deps chromium",
+            "python test/release_user_journey.py --bundle artifacts/copilot-value-dashboard-${{ needs.bundle.outputs.version }}.pyz",
+            "release-user-journey-failure.png",
             "contents: write",
             "github.ref == 'refs/heads/main'",
             "gh release create",
@@ -78,6 +81,24 @@ class ReleaseVersionTests(unittest.TestCase):
         for expected in required_contract:
             with self.subTest(expected=expected):
                 self.assertIn(expected, workflow)
+        test_job = workflow.split("  test:", 1)[1].split("\n  bundle:", 1)[0]
+        linux_smoke_job = workflow.split("  linux-bundle-smoke:", 1)[1].split(
+            "\n  release:", 1
+        )[0]
+        portable_build = "python scripts/copilot_value.py bundle --skip-tests"
+        portable_smoke = (
+            "python scripts/copilot_value.py smoke-bundle --skip-build --skip-telemetry"
+        )
+        self.assertIn("os: [windows-latest, ubuntu-latest, macos-latest]", test_job)
+        self.assertIn(portable_build, test_job)
+        self.assertIn(portable_smoke, test_job)
+        self.assertLess(test_job.index(portable_build), test_job.index(portable_smoke))
+        self.assertNotIn(".ci-artifacts", test_job)
+        self.assertNotIn("playwright", test_job.lower())
+        self.assertIn("timeout-minutes: 30", linux_smoke_job)
+        self.assertIn("python -m pip install playwright==1.62.0", linux_smoke_job)
+        self.assertIn("python -m playwright install --with-deps chromium", linux_smoke_job)
+        self.assertIn("python test/release_user_journey.py", linux_smoke_job)
         self.assertNotIn("git commit", workflow)
         self.assertNotIn("git push", workflow)
 
