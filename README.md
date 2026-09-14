@@ -575,9 +575,9 @@ The bundle smoke test extracts the zip into a temporary repository's `.copilot-v
 - fresh-runner Playwright navigation over synthetic 14-day and 21-day backfill, including time-range filtering, scenario selection, session search, and prompt drill-down;
 - clean shutdown and restoration of the development stack.
 
-CI runs tests on Windows, macOS, and Linux. It validates the extracted bundle on Windows and installs the packaged Docker stack on a fresh Linux runner for synthetic OTel session measurement and the Playwright user journey before uploading the platform-neutral zip and checksum. A browser failure retains a screenshot as a workflow artifact.
+CI runs tests on Windows, macOS, and Linux, then builds and executes the generated PYZ installation smoke on every operating system. Linux additionally installs the packaged Docker stack for synthetic OTel session measurement and the Playwright user journey before release. A browser failure retains a screenshot as a workflow artifact.
 
-Every successful push to `main` also creates a GitHub Release. CI reads the highest stable `vMAJOR.MINOR.PATCH` tag, increments its patch component (using `package.json` as the floor), stamps that version into the build, and publishes the exact `.pyz`, `.zip`, and both SHA-256 files that passed the Windows and Linux smoke tests. The version is applied only to the release build and tag; CI does not create a recursive version-bump commit.
+Every successful push to `main` also creates a GitHub Release. CI reads the highest stable `vMAJOR.MINOR.PATCH` tag, increments its patch component (using `package.json` as the floor), stamps that version into the build, and publishes the exact `.pyz`, `.zip`, and both SHA-256 files after portable installation passes on Windows, macOS, and Linux and the full Docker/browser smoke passes on Linux. The version is applied only to the release build and tag; CI does not create a recursive version-bump commit.
 
 ## Limits
 
