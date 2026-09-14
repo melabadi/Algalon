@@ -226,7 +226,7 @@
     },
     "site/index.html": {
       "mode": "100644",
-      "sha256": "89bda2309ae7b73b5a4c1b528cff4946987d9c44ed8fcb3f1a380a2b8e3c98c1"
+      "sha256": "c1ce9c334305994b5d4950a82d2c6222d443c5a16b40767d85fbba650ee56cb5"
     },
     "site/methodology.html": {
       "mode": "100644",
@@ -234,7 +234,7 @@
     },
     "site/styles.css": {
       "mode": "100644",
-      "sha256": "825668a27adb09740fc0faacc5584a6c5664022fc8510fd763274b91b25d73ce"
+      "sha256": "c659be3d62adb004973b2e99be32663940065643458ae8be52662c141830b708"
     },
     "src/benchmark.ts": {
       "mode": "100644",
@@ -398,7 +398,7 @@
     },
     "test/test_pages_site.py": {
       "mode": "100644",
-      "sha256": "c1b056348f48bc6682e25df7c687e24fa574567b1b03c0fde7aa5178b40e890d"
+      "sha256": "6875d09dbf8a1ba08726137e64cb67cc151db5f72dcd52b456f19607b1a5111d"
     },
     "test/test_release_smoke_transport.py": {
       "mode": "100644",

@@ -50,6 +50,14 @@
             <div><p class="eyebrow">Start here</p><h2 id="install-title">Get started</h2><p>Works on Windows, macOS, and Linux. Start Docker and sign in to GitHub Copilot in VS Code before installing. No Node.js required.</p></div>
             <a class="button button-primary" href="https://github.com/melabadi/Algalon/releases/latest">Download the latest release</a>
           </div>
+          <div class="setup-requirements" aria-labelledby="setup-requirements-title">
+            <h3 id="setup-requirements-title">Before you install</h3>
+            <dl>
+              <div><dt>Free loopback ports</dt><dd>Keep <code>3000</code>, <code>4317</code>, <code>4318</code>, <code>8428</code>, and <code>13133</code> available. Optional Grafana uses <code>3001</code>.</dd></div>
+              <div><dt>Download access</dt><dd>Allow Docker image downloads plus <code>registry.npmjs.org</code>, <code>pypi.org</code>, and <code>files.pythonhosted.org</code> during installation.</dd></div>
+              <div><dt>Local write access</dt><dd>Algalon writes <code>.copilot-value/</code> in the chosen repository and updates VS Code user settings for Copilot telemetry.</dd></div>
+            </dl>
+          </div>
           <ol class="setup-steps">
             <li><span class="step-number">01</span><div><h3>Download</h3><p>Download the self-installing <strong>PYZ</strong> into the repository folder you want to use for Algalon. No extraction needed.</p></div></li>
             <li><span class="step-number">02</span><div><h3>Run</h3><p>Open a terminal in that folder and run the command for your platform below.</p></div></li>
