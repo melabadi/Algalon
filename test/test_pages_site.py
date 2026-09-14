@@ -116,17 +116,18 @@ class PagesSiteTests(unittest.TestCase):
         self.assertIn("data/value-model.example.json", self.script)
         self.assertTrue((SITE / ".nojekyll").is_file())
 
-    def test_built_pages_include_the_public_contact_in_both_footers(self) -> None:
-        contact = "mailto:" + "@".join(("mehdilabadi", "microsoft.com"))
+    def test_built_pages_exclude_email_addresses(self) -> None:
         with tempfile.TemporaryDirectory() as temporary_directory:
             output = Path(temporary_directory) / "site"
             build(output)
             for name in ("index.html", "methodology.html"):
                 with self.subTest(page=name):
-                    parser = SiteParser()
-                    parser.feed((output / name).read_text(encoding="utf-8"))
-                    parser.close()
-                    self.assertEqual(parser.footer_links.count(contact), 1)
+                    text = (output / name).read_text(encoding="utf-8")
+                    self.assertNotIn("mailto:", text)
+                    self.assertNotRegex(
+                        text,
+                        r"(?i)\b[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}\b",
+                    )
 
     def test_explains_claim_boundary_and_current_formula(self) -> None:
         for phrase in (

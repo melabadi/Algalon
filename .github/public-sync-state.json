@@ -226,11 +226,11 @@
     },
     "site/index.html": {
       "mode": "100644",
-      "sha256": "c1ce9c334305994b5d4950a82d2c6222d443c5a16b40767d85fbba650ee56cb5"
+      "sha256": "192119da0999c1a0907c9174bbf6cae7b7c431b375c010f67c22dd6984111ac6"
     },
     "site/methodology.html": {
       "mode": "100644",
-      "sha256": "99e6a227baf0b32303f21d532873fa258154eb4f529feb800e40b3efae2978da"
+      "sha256": "e758d6ec59a85fbee639a0c2c441ade872e14bab291b6bbe84a463914e85c881"
     },
     "site/styles.css": {
       "mode": "100644",
@@ -398,7 +398,7 @@
     },
     "test/test_pages_site.py": {
       "mode": "100644",
-      "sha256": "6875d09dbf8a1ba08726137e64cb67cc151db5f72dcd52b456f19607b1a5111d"
+      "sha256": "2b1157d7be02ac7d8cd26261caeb8228a0c9eea0b9261f68ffb111851f5a3ebf"
     },
     "test/test_release_smoke_transport.py": {
       "mode": "100644",
