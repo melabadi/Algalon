@@ -129,7 +129,7 @@ jobs:
         run: python scripts/copilot_value.py smoke-bundle --skip-build --skip-telemetry
 
       - name: Upload release artifact
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
         with:
           name: copilot-value-dashboard-${{ steps.version.outputs.version }}
           path: |
@@ -179,7 +179,7 @@ jobs:
 
       - name: Upload browser failure screenshot
         if: failure()
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
         with:
           name: release-user-journey-failure
           path: artifacts/release-user-journey-failure.png
