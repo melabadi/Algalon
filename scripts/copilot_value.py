@@ -56,6 +56,7 @@ HEALTH_ENDPOINTS = (
     ("Collector health", "http://127.0.0.1:13133/"),
     ("Algalon API", "http://127.0.0.1:3000/api/health"),
 )
+OTLP_TRACES_ENDPOINT = "http://127.0.0.1:4318/v1/traces"
 VSCODE_OTEL_SETTINGS: dict[str, object] = {
     "chat.agentHost.otel.enabled": True,
     "chat.agentHost.otel.exporterType": "otlp-http",
@@ -231,6 +232,23 @@ def endpoint_healthy(url: str, timeout_seconds: float = 2) -> bool:
         return False
 
 
+def otlp_ingress_healthy(
+    url: str = OTLP_TRACES_ENDPOINT,
+    timeout_seconds: float = 2,
+) -> bool:
+    request = Request(
+        url,
+        data=b'{"resourceSpans":[]}',
+        headers={"Content-Type": "application/json"},
+        method="POST",
+    )
+    try:
+        with urlopen(request, timeout=timeout_seconds) as response:
+            return 200 <= response.status < 300
+    except (OSError, URLError):
+        return False
+
+
 def wait_for_endpoint(name: str, url: str, timeout_seconds: int = 90) -> None:
     deadline = time.monotonic() + timeout_seconds
     while time.monotonic() < deadline:
@@ -238,6 +256,18 @@ def wait_for_endpoint(name: str, url: str, timeout_seconds: int = 90) -> None:
             return
         time.sleep(0.5)
     raise CopilotValueError(f"{name} did not become healthy at {url} within {timeout_seconds} seconds.")
+
+
+def wait_for_otlp_ingress(timeout_seconds: int = 90) -> None:
+    deadline = time.monotonic() + timeout_seconds
+    while time.monotonic() < deadline:
+        if otlp_ingress_healthy():
+            return
+        time.sleep(0.5)
+    raise CopilotValueError(
+        f"Collector OTLP ingress did not become healthy at {OTLP_TRACES_ENDPOINT} "
+        f"within {timeout_seconds} seconds."
+    )
 
 
 def grafana_authorization_header(password: str) -> str:
@@ -726,6 +756,7 @@ def start_installation(root: Path, *, force_recreate: bool = False) -> int:
     compose(runtime, root, tuple(up_arguments))
     for name, url in HEALTH_ENDPOINTS:
         wait_for_endpoint(name, url)
+    wait_for_otlp_ingress()
     deadline = time.monotonic() + 90
     while time.monotonic() < deadline:
         running = compose(runtime, root, ("ps", "--status", "running", "--services"), capture=True)
@@ -846,6 +877,9 @@ def command_status(_arguments: argparse.Namespace) -> int:
         healthy = endpoint_healthy(url)
         failed = failed or not healthy
         print(f"{name:24} {'yes' if healthy else 'no'}")
+    healthy = otlp_ingress_healthy()
+    failed = failed or not healthy
+    print(f"{'Collector OTLP':24} {'yes' if healthy else 'no'}")
     return 1 if failed else 0
 
 

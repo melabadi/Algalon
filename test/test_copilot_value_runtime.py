@@ -217,6 +217,31 @@ class HealthAndGrafanaTests(unittest.TestCase):
         with patch.object(copilot_value, "urlopen", side_effect=URLError("offline")):
             self.assertFalse(copilot_value.endpoint_healthy("http://health"))
 
+        with patch.object(copilot_value, "urlopen", return_value=FakeResponse(200)) as urlopen:
+            self.assertTrue(copilot_value.otlp_ingress_healthy())
+        request = urlopen.call_args.args[0]
+        self.assertEqual(request.full_url, copilot_value.OTLP_TRACES_ENDPOINT)
+        self.assertEqual(request.get_method(), "POST")
+        self.assertEqual(request.data, b'{"resourceSpans":[]}')
+        self.assertEqual(request.get_header("Content-type"), "application/json")
+        with patch.object(copilot_value, "urlopen", side_effect=URLError("offline")):
+            self.assertFalse(copilot_value.otlp_ingress_healthy())
+
+        with (
+            patch.object(copilot_value, "otlp_ingress_healthy", side_effect=[False, True]),
+            patch.object(copilot_value.time, "monotonic", side_effect=[0, 0, 0]),
+            patch.object(copilot_value.time, "sleep") as sleep,
+        ):
+            copilot_value.wait_for_otlp_ingress(timeout_seconds=2)
+        sleep.assert_called_once_with(0.5)
+
+        with (
+            patch.object(copilot_value, "otlp_ingress_healthy", return_value=False),
+            patch.object(copilot_value.time, "monotonic", side_effect=[0, 1]),
+            self.assertRaisesRegex(copilot_value.CopilotValueError, "OTLP ingress did not become healthy"),
+        ):
+            copilot_value.wait_for_otlp_ingress(timeout_seconds=0)
+
         with (
             patch.object(copilot_value, "endpoint_healthy", side_effect=[False, True]),
             patch.object(copilot_value.time, "monotonic", side_effect=[0, 0, 0]),
@@ -519,10 +544,12 @@ class InstallationCommandTests(unittest.TestCase):
                 patch.object(copilot_value, "DockerRuntime", return_value=runtime),
                 patch.object(copilot_value, "compose", return_value=running) as compose,
                 patch.object(copilot_value, "wait_for_endpoint") as wait,
+                patch.object(copilot_value, "wait_for_otlp_ingress") as wait_for_otlp,
             ):
                 self.assertEqual(copilot_value.start_installation(root, force_recreate=True), 0)
             self.assertIn("--force-recreate", compose.call_args_list[0].args[2])
             self.assertEqual(wait.call_count, len(copilot_value.HEALTH_ENDPOINTS))
+            wait_for_otlp.assert_called_once_with()
 
             with (
                 patch.object(copilot_value, "install_root", return_value=root),
@@ -540,6 +567,7 @@ class InstallationCommandTests(unittest.TestCase):
                 patch.object(copilot_value, "DockerRuntime", return_value=runtime),
                 patch.object(copilot_value, "compose", return_value=all_services),
                 patch.object(copilot_value, "endpoint_healthy", return_value=True),
+                patch.object(copilot_value, "otlp_ingress_healthy", return_value=True),
             ):
                 self.assertEqual(copilot_value.command_status(argparse.Namespace()), 0)
 
@@ -549,6 +577,22 @@ class InstallationCommandTests(unittest.TestCase):
                 patch.object(copilot_value, "DockerRuntime", return_value=runtime),
                 patch.object(copilot_value, "compose", return_value=missing_services),
                 patch.object(copilot_value, "endpoint_healthy", return_value=False),
+                patch.object(copilot_value, "otlp_ingress_healthy", return_value=True),
+            ):
+                self.assertEqual(copilot_value.command_status(argparse.Namespace()), 1)
+
+    def test_status_fails_when_collector_otlp_ingress_is_unreachable(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            root = Path(temporary_directory)
+            (root / ".docker-install").write_text("docker\n", encoding="utf-8")
+            runtime = Mock()
+            all_services = subprocess.CompletedProcess([], 0, stdout="\n".join(copilot_value.SERVICES))
+            with (
+                patch.object(copilot_value, "install_root", return_value=root),
+                patch.object(copilot_value, "DockerRuntime", return_value=runtime),
+                patch.object(copilot_value, "compose", return_value=all_services),
+                patch.object(copilot_value, "endpoint_healthy", return_value=True),
+                patch.object(copilot_value, "otlp_ingress_healthy", return_value=False),
             ):
                 self.assertEqual(copilot_value.command_status(argparse.Namespace()), 1)
 
@@ -713,6 +757,7 @@ class InstallationCommandTests(unittest.TestCase):
                 patch.object(copilot_value, "DockerRuntime", return_value=runtime),
                 patch.object(copilot_value, "compose", return_value=running) as compose,
                 patch.object(copilot_value, "wait_for_endpoint"),
+                patch.object(copilot_value, "wait_for_otlp_ingress"),
                 patch.object(copilot_value.time, "monotonic", side_effect=[0, 100]),
                 self.assertRaisesRegex(copilot_value.CopilotValueError, "worker did not become healthy"),
             ):
