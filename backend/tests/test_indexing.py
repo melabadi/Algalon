@@ -238,6 +238,263 @@ class DurableIndexingTests(unittest.TestCase):
         self.assertEqual(self.store.session(experiment)["tokens"]["output"], 20)
         self.assertEqual(self.store.indexing_status()["state"], "current")
 
+    def test_available_direct_log_is_indexed_when_session_usage_falls_back_to_otel(self) -> None:
+        payload = self.payload()
+        first_span = payload["resourceSpans"][0]["scopeSpans"][0]["spans"][0]
+        first_span["attributes"] = [
+            value for value in first_span["attributes"]
+            if value["key"] != "copilot_chat.user_request"
+        ]
+        missing_span = json.loads(json.dumps(first_span))
+        missing_span.update(
+            traceId="trace-session-a-missing",
+            spanId="span-session-a-missing",
+            startTimeUnixNano=str((self.started + 1_000) * 1_000_000),
+            endTimeUnixNano=str((self.started + 1_500) * 1_000_000),
+        )
+        missing_span["attributes"][0] = attribute(
+            "gen_ai.conversation.id", "conversation-session-a-missing"
+        )
+        missing_span["attributes"].append(
+            attribute("copilot_chat.user_request", "Fallback OTel prompt")
+        )
+        payload["resourceSpans"][0]["scopeSpans"][0]["spans"].append(missing_span)
+
+        experiment = self.artifact()
+        self.store.ingest_otlp_traces(payload)
+        self.store.chat_log_root = self.root / "workspace-storage"
+        direct_log = (
+            self.store.chat_log_root
+            / "workspace/GitHub.copilot-chat/debug-logs/conversation-session-a/main.jsonl"
+        )
+        direct_log.parent.mkdir(parents=True)
+        direct_log.write_text("\n".join(json.dumps(event) for event in (
+            {
+                "ts": self.started,
+                "type": "user_message",
+                "attrs": {"content": "Available direct prompt"},
+            },
+            {
+                "ts": self.started + 100,
+                "type": "llm_request",
+                "attrs": {
+                    "model": "model-a", "inputTokens": 100, "cachedTokens": 80,
+                    "outputTokens": 10, "reasoningTokens": 0,
+                    "copilotUsageNanoAiu": 1_000_000_000,
+                },
+            },
+        )) + "\n", encoding="utf-8")
+
+        self.store.index_once()
+
+        prompts = self.store.prompts(experiment)
+        self.assertEqual(
+            [(prompt["content"], prompt["usageSource"]) for prompt in prompts],
+            [
+                ("Available direct prompt", "copilot_turn_log"),
+                ("Fallback OTel prompt", "otel_trace"),
+            ],
+        )
+        with closing(self.store._connect()) as connection:
+            self.assertEqual(
+                [row[0] for row in connection.execute(
+                    "SELECT ordinal FROM prompts WHERE experiment = ? ORDER BY ordinal",
+                    (experiment,),
+                ).fetchall()],
+                [1, 2],
+            )
+        self.assertEqual(self.store.session(experiment)["usage"]["source"], "otel_traces")
+        self.assertEqual(self.store.indexing_status()["state"], "current")
+
+        restarted = self.new_store()
+        restarted.chat_log_root = self.store.chat_log_root
+        restarted.index_once()
+        self.assertEqual(
+            [prompt["usageSource"] for prompt in restarted.prompts(experiment)],
+            ["copilot_turn_log", "otel_trace"],
+        )
+
+    def test_unreadable_optional_direct_log_falls_back_to_otel(self) -> None:
+        experiment = self.artifact()
+        self.store.ingest_otlp_traces(self.payload())
+        self.store.chat_log_root = self.root / "workspace-storage"
+        direct_log = (
+            self.store.chat_log_root
+            / "workspace/GitHub.copilot-chat/debug-logs/conversation-session-a/main.jsonl"
+        )
+        direct_log.parent.mkdir(parents=True)
+        direct_log.write_text("{}\n", encoding="utf-8")
+
+        with patch("backend.app.store._read_copilot_turns", side_effect=OSError):
+            self.store.index_once()
+
+        prompts = self.store.prompts(experiment)
+        self.assertEqual(len(prompts), 1)
+        self.assertEqual(prompts[0]["usageSource"], "otel_trace")
+        self.assertEqual(self.store.indexing_status()["state"], "current")
+
+    def test_invalid_optional_direct_log_falls_back_to_otel(self) -> None:
+        experiment = self.artifact()
+        self.store.ingest_otlp_traces(self.payload())
+        self.store.chat_log_root = self.root / "workspace-storage"
+        direct_log = (
+            self.store.chat_log_root
+            / "workspace/GitHub.copilot-chat/debug-logs/conversation-session-a/main.jsonl"
+        )
+        direct_log.parent.mkdir(parents=True)
+        direct_log.write_text("\n".join(json.dumps(event) for event in (
+            {
+                "ts": self.started,
+                "type": "user_message",
+                "attrs": {"content": "Invalid exact prompt"},
+            },
+            {
+                "ts": self.started + 100,
+                "type": "llm_request",
+                "attrs": {
+                    "model": "model-a", "inputTokens": -1, "outputTokens": 10,
+                    "copilotUsageNanoAiu": 1_000_000_000,
+                },
+            },
+        )) + "\n", encoding="utf-8")
+
+        self.store.index_once()
+
+        prompts = self.store.prompts(experiment)
+        self.assertEqual(len(prompts), 1)
+        self.assertEqual(prompts[0]["usageSource"], "otel_trace")
+        self.assertEqual(self.store.indexing_status()["state"], "current")
+
+    def test_malformed_optional_direct_log_falls_back_to_otel(self) -> None:
+        experiment = self.artifact()
+        self.store.ingest_otlp_traces(self.payload())
+        self.store.chat_log_root = self.root / "workspace-storage"
+        direct_log = (
+            self.store.chat_log_root
+            / "workspace/GitHub.copilot-chat/debug-logs/conversation-session-a/main.jsonl"
+        )
+        direct_log.parent.mkdir(parents=True)
+        direct_log.write_text("\n".join(json.dumps(event) for event in (
+            {
+                "ts": self.started,
+                "type": "user_message",
+                "attrs": {"content": "Malformed exact prompt"},
+            },
+            {"ts": self.started + 100, "type": "llm_request", "attrs": []},
+        )) + "\n", encoding="utf-8")
+
+        self.store.index_once()
+
+        prompts = self.store.prompts(experiment)
+        self.assertEqual(len(prompts), 1)
+        self.assertEqual(prompts[0]["usageSource"], "otel_trace")
+        self.assertEqual(self.store.indexing_status()["state"], "current")
+
+    def test_required_direct_log_without_usable_turns_retries(self) -> None:
+        experiment = self.artifact()
+        self.store.ingest_otlp_traces(self.payload())
+        self.store.chat_log_root = self.root / "workspace-storage"
+        direct_log = (
+            self.store.chat_log_root
+            / "workspace/GitHub.copilot-chat/debug-logs/conversation-session-a/main.jsonl"
+        )
+        direct_log.parent.mkdir(parents=True)
+        direct_log.write_text("{}\n", encoding="utf-8")
+        path = self.root / "sessions" / f"{experiment}.json"
+        artifact = json.loads(path.read_text(encoding="utf-8"))
+        artifact["inboxCursor"] = self.store.otel_records()["nextCursor"]
+        artifact["usage"] = {
+            "source": "copilot_turn_log", "chatSpans": 1, "inputTokens": 100,
+            "cacheReadTokens": 0, "outputTokens": 10, "reasoningTokens": 0,
+            "aiCredits": 1, "aiCostUsd": 0.01,
+        }
+        path.write_text(json.dumps(artifact), encoding="utf-8")
+
+        self.store.index_once()
+
+        self.assertEqual(self.store.prompts(experiment), [])
+        with closing(self.store._connect()) as connection:
+            self.assertEqual(
+                connection.execute("SELECT error_code FROM indexing_work").fetchone()[0],
+                "waiting_for_logs",
+            )
+
+    def test_log_discovery_recovery_requeues_unchanged_exact_logs(self) -> None:
+        experiment = self.artifact()
+        self.store.ingest_otlp_traces(self.payload())
+        self.store.chat_log_root = self.root / "workspace-storage"
+        direct_log = (
+            self.store.chat_log_root
+            / "workspace/GitHub.copilot-chat/debug-logs/conversation-session-a/main.jsonl"
+        )
+        direct_log.parent.mkdir(parents=True)
+        direct_log.write_text("\n".join(json.dumps(event) for event in (
+            {
+                "ts": self.started,
+                "type": "user_message",
+                "attrs": {"content": "Recovered exact prompt"},
+            },
+            {
+                "ts": self.started + 100,
+                "type": "llm_request",
+                "attrs": {
+                    "model": "model-a", "inputTokens": 100, "cachedTokens": 80,
+                    "outputTokens": 10, "reasoningTokens": 0,
+                    "copilotUsageNanoAiu": 1_000_000_000,
+                },
+            },
+        )) + "\n", encoding="utf-8")
+        self.store.index_once()
+        self.assertEqual(self.store.prompts(experiment)[0]["usageSource"], "copilot_turn_log")
+
+        self.store.ingest_otlp_traces(self.payload(ordinal=1))
+        with patch.object(
+            self.store,
+            "_refresh_chat_log_index",
+            side_effect=IndexingBlocked("log_discovery_limit"),
+        ):
+            self.store.index_once()
+        self.assertEqual(
+            {prompt["usageSource"] for prompt in self.store.prompts(experiment)},
+            {"otel_trace"},
+        )
+
+        restarted = self.new_store()
+        restarted.chat_log_root = self.store.chat_log_root
+        restarted.index_once()
+        self.assertEqual(
+            [prompt["usageSource"] for prompt in restarted.prompts(experiment)],
+            ["copilot_turn_log"],
+        )
+        self.assertEqual(restarted.indexing_status()["state"], "current")
+
+    def test_prompt_index_version_rebuilds_completed_sessions_after_upgrade(self) -> None:
+        experiment = self.artifact()
+        self.store.ingest_otlp_traces(self.payload())
+        self.store.index_once()
+        with closing(self.store._connect()) as connection, connection:
+            connection.execute("DELETE FROM prompts WHERE experiment = ?", (experiment,))
+            connection.execute(
+                "UPDATE store_metadata SET value = 'previous-version' WHERE key = 'indexing_config'"
+            )
+
+        restarted = self.new_store()
+        restarted.index_once()
+
+        self.assertEqual(len(restarted.prompts(experiment)), 1)
+        self.assertEqual(restarted.indexing_status()["state"], "current")
+        with closing(restarted._connect()) as connection:
+            completed = tuple(connection.execute(
+                "SELECT requested_version, indexed_version FROM indexing_work"
+            ).fetchone())
+
+        restarted.index_once()
+
+        with closing(restarted._connect()) as connection:
+            self.assertEqual(tuple(connection.execute(
+                "SELECT requested_version, indexed_version FROM indexing_work"
+            ).fetchone()), completed)
+
     def test_isolated_preparation_accepts_direct_logs_larger_than_64_mib(self) -> None:
         experiment = self.artifact()
         self.store.ingest_otlp_traces(self.payload())

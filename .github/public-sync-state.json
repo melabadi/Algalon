@@ -22,7 +22,7 @@
     },
     "backend/app/indexing.py": {
       "mode": "100644",
-      "sha256": "fc7cc17024c0b396145dfbca5ce1971cdd8590109f5233cbc827f952b697872c"
+      "sha256": "1789d70d2acacbee46ba2b19d335646364f5732798b3e5af9b48064062c18f4b"
     },
     "backend/app/indexing_job.py": {
       "mode": "100644",
@@ -46,7 +46,7 @@
     },
     "backend/app/prompt_index.py": {
       "mode": "100644",
-      "sha256": "703c01e378f86be59660b0828909bca61b128c3b605b883ca0c828e05fe343c5"
+      "sha256": "45e274cfe8b1cfb0ba30f40c33d05a4d20695d14041a708634fb4307f39b4ed9"
     },
     "backend/app/session_identity.py": {
       "mode": "100644",
@@ -54,7 +54,7 @@
     },
     "backend/app/store.py": {
       "mode": "100644",
-      "sha256": "9f81d8e32e3f997d75b630bf43947e0e0571346c6f48bb200ce716c8bb89d771"
+      "sha256": "c8dc46f921640ce6f2fda7b4fc0b5fd32a22cd244758232688d3f28b35240f97"
     },
     "backend/app/trace_archive.py": {
       "mode": "100644",
@@ -70,7 +70,7 @@
     },
     "backend/tests/test_indexing.py": {
       "mode": "100644",
-      "sha256": "aef24c1eef6357cca3a985e52b5215474c8265c3c640ce1ba561241f74c262a8"
+      "sha256": "e0cdda2910cb00535d1ddb3f53948c7f4a2804122144162f98c9449d596a4beb"
     },
     "backend/tests/test_indexing_io.py": {
       "mode": "100644",
@@ -90,11 +90,11 @@
     },
     "backend/tests/test_prompt_integrity.py": {
       "mode": "100644",
-      "sha256": "65262d85c83a34d37c7cb4effa8c45a0e3106b3959c37480c95e7536b04c2363"
+      "sha256": "3e4adc081d6d299b62cd120000bae98410f657c039810cfc12c21008c2f6257e"
     },
     "backend/tests/test_store.py": {
       "mode": "100644",
-      "sha256": "ec42e1e8aba5e265c0f9c8782b20171dfde9e5c006855660951b14ab574a203f"
+      "sha256": "bcc75f1f5206bed713ef5703d73911a6422a3a4e4395483c0584d59256b8d4a1"
     },
     "config/grafana/dashboards/personal-copilot-value.json": {
       "mode": "100644",

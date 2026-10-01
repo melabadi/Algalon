@@ -2069,7 +2069,10 @@ class ValueStoreTests(unittest.TestCase):
             )
             store.index_once()
 
-            self.assertEqual(store.prompts(experiment), [])
+            prompts = store.prompts(experiment)
+            self.assertEqual(len(prompts), 1)
+            self.assertEqual(prompts[0]["content"], "Direct prompt")
+            self.assertEqual(prompts[0]["usageSource"], "copilot_turn_log")
 
     def test_indexes_sessions_and_ordered_prompt_groups_after_earlier_span_arrives(self) -> None:
         with tempfile.TemporaryDirectory() as temporary_directory:
