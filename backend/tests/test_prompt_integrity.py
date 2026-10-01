@@ -187,6 +187,23 @@ class PromptIntegrityTests(unittest.TestCase):
             self.assertEqual(turns[0]["content"], "Inside")
             self.assertEqual(turns[0]["output_tokens"], 20)
 
+    def test_direct_turn_reader_rejects_non_object_events_and_attributes(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            path = Path(temporary_directory) / "main.jsonl"
+            path.write_text("\n".join(json.dumps(event) for event in (
+                ["not", "an", "event"],
+                {"ts": 1_000, "type": "user_message", "attrs": []},
+                {
+                    "ts": 2_000,
+                    "type": "user_message",
+                    "attrs": {"content": "Valid prompt"},
+                },
+                {"ts": 2_001, "type": "llm_request", "attrs": "invalid"},
+            )) + "\n", encoding="utf-8")
+
+            with self.assertRaisesRegex(ValueError, "event must be an object"):
+                read_copilot_turns(path)
+
     def test_direct_turn_reader_preserves_exact_signed_64_bit_counters(self) -> None:
         with tempfile.TemporaryDirectory() as temporary_directory:
             path = Path(temporary_directory) / "main.jsonl"
@@ -300,6 +317,98 @@ class PromptIntegrityTests(unittest.TestCase):
                 sum(turn[field] for turn in direct_turns),
                 field,
             )
+
+    def test_exact_turns_replace_only_their_conversation_and_merge_with_otel(self) -> None:
+        exact_started = datetime(2026, 8, 20, 12, 0, tzinfo=timezone.utc)
+        fallback_started = datetime(2026, 8, 20, 12, 1, tzinfo=timezone.utc)
+        trace_session = {
+            "spans": [
+                {
+                    "_started": int(exact_started.timestamp() * 1_000),
+                    "traceId": "exact-trace",
+                    "name": "chat model",
+                    "attributes": [
+                        attribute("copilot_chat.user_request", "Noisy exact duplicate"),
+                        attribute("gen_ai.conversation.id", "conversation"),
+                    ],
+                },
+                {
+                    "_started": int(fallback_started.timestamp() * 1_000),
+                    "traceId": "fallback-trace",
+                    "name": "chat model",
+                    "attributes": [
+                        attribute("copilot_chat.user_request", "Fallback prompt"),
+                        attribute("gen_ai.conversation.id", "fallback"),
+                    ],
+                },
+            ],
+        }
+
+        groups = group_prompts(
+            trace_session,
+            [direct_turn(0)],
+            content_enabled=True,
+            include_unmatched_otel=True,
+        )
+
+        self.assertEqual(
+            [(group["content"], group["usage_source"]) for group in groups],
+            [
+                ("Visible user turn 0", "copilot_turn_log"),
+                ("Fallback prompt", "otel_trace"),
+            ],
+        )
+        self.assertEqual([group["ordinal"] for group in groups], [1, 2])
+
+    def test_interleaved_exact_spans_do_not_contaminate_unmatched_otel_groups(self) -> None:
+        fallback_started = datetime(2026, 8, 20, 12, 0, tzinfo=timezone.utc)
+        trace_session = {
+            "spans": [
+                {
+                    "_started": int(fallback_started.timestamp() * 1_000),
+                    "traceId": "fallback-trace",
+                    "name": "chat model",
+                    "attributes": [
+                        attribute("copilot_chat.user_request", "Fallback A"),
+                        attribute("gen_ai.conversation.id", "fallback-a"),
+                        attribute("gen_ai.usage.output_tokens", 5, "intValue"),
+                    ],
+                },
+                {
+                    "_started": int(fallback_started.timestamp() * 1_000) + 100,
+                    "traceId": "fallback-b-trace",
+                    "name": "chat model",
+                    "attributes": [
+                        attribute("copilot_chat.user_request", "Fallback B"),
+                        attribute("gen_ai.conversation.id", "fallback-b"),
+                        attribute("gen_ai.usage.output_tokens", 100, "intValue"),
+                    ],
+                },
+                {
+                    "_started": int(fallback_started.timestamp() * 1_000) + 200,
+                    "traceId": "fallback-trace",
+                    "name": "chat model",
+                    "attributes": [
+                        attribute("gen_ai.conversation.id", "fallback-a"),
+                        attribute("gen_ai.usage.output_tokens", 7, "intValue"),
+                    ],
+                },
+            ],
+        }
+
+        groups = group_prompts(
+            trace_session,
+            [direct_turn(0)],
+            content_enabled=True,
+            include_unmatched_otel=True,
+        )
+
+        fallback = {
+            group["content"]: group["output_tokens"]
+            for group in groups
+            if group["usage_source"] == "otel_trace"
+        }
+        self.assertEqual(fallback, {"Fallback A": 12, "Fallback B": 100})
 
     def test_incomplete_or_invalid_session_usage_fails_closed(self) -> None:
         base_usage = {

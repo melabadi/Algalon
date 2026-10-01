@@ -71,6 +71,7 @@ MIN_SQLITE_INTEGER = -(2**63)
 MAX_SQLITE_INTEGER = 2**63 - 1
 MAX_JSON_SAFE_INTEGER = 2**53 - 1
 LEGACY_TRACE_IMPORT_KEY = "legacy_trace_inbox_import_v1"
+PROMPT_INDEX_VERSION = 1
 OTEL_IMPORT_BATCH_SIZE = 1_000
 OTEL_INBOX_PAGE_BYTES = 8 * 1024 * 1024
 INSIGHTS_SESSION_QUERY = """
@@ -879,6 +880,11 @@ class ValueStore:
         self._chat_log_index: dict[str, tuple[Path, int, int]] = {}
         self.database_path.parent.mkdir(parents=True, exist_ok=True)
         self._initialize()
+        with closing(self._connect()) as connection:
+            discovery_error = connection.execute(
+                "SELECT value FROM store_metadata WHERE key = 'indexing_discovery_error'"
+            ).fetchone()
+        self._log_discovery_error = discovery_error[0] or None if discovery_error else None
 
     def _connect(self) -> sqlite3.Connection:
         connection = sqlite3.connect(self.database_path, timeout=2)
@@ -1204,21 +1210,11 @@ class ValueStore:
         connection.execute(
             """
             DELETE FROM prompts
-            WHERE (
-                usage_source = 'otel_trace'
-                AND experiment IN (
-                    SELECT experiment
-                    FROM sessions
-                    WHERE json_extract(usage_json, '$.source') = 'copilot_turn_log'
-                )
-            ) OR (
-                usage_source = 'copilot_turn_log'
-                AND experiment IN (
-                    SELECT experiment
-                    FROM sessions
-                    WHERE COALESCE(json_extract(usage_json, '$.source'), 'otel_traces')
-                          != 'copilot_turn_log'
-                )
+            WHERE usage_source = 'otel_trace'
+            AND experiment IN (
+                SELECT experiment
+                FROM sessions
+                WHERE json_extract(usage_json, '$.source') = 'copilot_turn_log'
             )
             """
         )
@@ -1235,20 +1231,30 @@ class ValueStore:
                 bootstrap_indexing(connection)
             self.session_directory.mkdir(parents=True, exist_ok=True)
             self._index_sessions()
+            log_discovery_recovered = False
             if monotonic() >= self._log_retry_at:
+                previous_log_error = self._log_discovery_error
                 try:
                     self._refresh_chat_log_index()
                     self._log_discovery_error = None
+                    log_discovery_recovered = previous_log_error is not None
                 except (OSError, IndexingBlocked):
                     self._log_discovery_error = "log_discovery_unavailable"
                     self._log_retry_at = monotonic() + 30
             with closing(self._connect()) as connection:
                 if self._log_discovery_error is None:
-                    stage_log_changes(connection, self._chat_log_index)
+                    stage_log_changes(
+                        connection,
+                        self._chat_log_index,
+                        force=log_discovery_recovered,
+                    )
                 self._chat_session_ids.update(row[0] for row in connection.execute(
                     "SELECT DISTINCT conversation_id FROM indexing_conversations"
                 ))
-                config_signature = sha256(json.dumps(self._config(), sort_keys=True).encode("utf-8")).hexdigest()
+                config_signature = sha256(json.dumps({
+                    "config": self._config(),
+                    "promptIndexVersion": PROMPT_INDEX_VERSION,
+                }, sort_keys=True).encode("utf-8")).hexdigest()
                 previous = connection.execute(
                     "SELECT value FROM store_metadata WHERE key = 'indexing_config'"
                 ).fetchone()
@@ -1556,29 +1562,53 @@ class ValueStore:
             raise IndexingBlocked("incomplete_retained_history")
         usage = artifact.get("usage") or {}
         direct_turns: list[dict[str, Any]] = []
-        if isinstance(usage, dict) and usage.get("source") == "copilot_turn_log":
-            if self._log_discovery_error:
+        direct_usage = isinstance(usage, dict) and usage.get("source") == "copilot_turn_log"
+        if self._log_discovery_error:
+            if direct_usage:
                 raise IndexingBlocked(self._log_discovery_error)
+        else:
             ended = _iso_milliseconds(str(artifact.get("completedAt") or ""))
             identifiers = conversation_ids(trace)
-            if not identifiers:
+            if direct_usage and not identifiers:
                 raise IndexingBlocked("waiting_for_logs")
             for identifier in identifiers:
                 path = self._chat_log_path(identifier)
                 if path is None:
-                    raise IndexingBlocked("waiting_for_logs")
-                turns = (
-                    isolated_log_io("turns", path, started, ended)
-                    if self.isolate_log_io else _read_copilot_turns(path, started, ended)
+                    if direct_usage:
+                        raise IndexingBlocked("waiting_for_logs")
+                    continue
+                try:
+                    turns = (
+                        isolated_log_io("turns", path, started, ended)
+                        if self.isolate_log_io else _read_copilot_turns(path, started, ended)
+                    )
+                except (IndexingBlocked, OSError, RecursionError, UnicodeError, ValueError):
+                    if direct_usage:
+                        raise
+                    continue
+                valid_turns = all(
+                    prompt_group_counters_valid({**turn, "ordinal": 0})
+                    for turn in turns
                 )
+                if direct_usage and not turns:
+                    raise IndexingBlocked("waiting_for_logs")
+                if not valid_turns:
+                    if direct_usage:
+                        raise IndexingBlocked("invalid_prompt_counters")
+                    continue
                 direct_turns.extend(
                     {**turn, "conversation_id": identifier}
                     for turn in turns
                 )
-        groups = group_prompts(trace, direct_turns, content_enabled)
+        groups = group_prompts(
+            trace,
+            direct_turns,
+            content_enabled,
+            include_unmatched_otel=not direct_usage,
+        )
         if not all(prompt_group_counters_valid(group) for group in groups):
             raise IndexingBlocked("invalid_prompt_counters")
-        if isinstance(usage, dict) and usage.get("source") == "copilot_turn_log" and input_cursor is not None:
+        if direct_usage and input_cursor is not None:
             counters = {
                 "model_requests": "chatSpans", "input_tokens": "inputTokens",
                 "cache_read_tokens": "cacheReadTokens", "output_tokens": "outputTokens",

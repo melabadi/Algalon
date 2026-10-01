@@ -156,8 +156,13 @@ def read_copilot_turns(
     turns: list[dict[str, Any]] = []
     current: dict[str, Any] | None = None
     for event in iter_json_lines(path, skip_invalid=True):
+        if not isinstance(event, dict):
+            raise ValueError("Direct log event must be an object")
         event_type = str(event.get("type") or "")
-        event_attributes = event.get("attrs") or {}
+        raw_attributes = event.get("attrs")
+        if event_type in {"user_message", "llm_request", "tool_call"} and not isinstance(raw_attributes, dict):
+            raise ValueError("Direct log event attributes must be an object")
+        event_attributes = raw_attributes if isinstance(raw_attributes, dict) else {}
         if event_type == "user_message":
             if current:
                 turns.append(finalize_prompt_group(current))
@@ -235,26 +240,56 @@ def group_prompts(
     trace_session: dict[str, Any],
     direct_turns: Iterable[dict[str, Any]],
     content_enabled: bool,
+    *,
+    include_unmatched_otel: bool = False,
 ) -> list[dict[str, Any]]:
     exact_groups = [
         {
             **turn,
-            "ordinal": ordinal,
+            "ordinal": 0,
             "content": turn["content"] if content_enabled else "",
         }
-        for ordinal, turn in enumerate(
-            sorted(direct_turns, key=lambda item: item["started_at"]),
-            start=1,
-        )
+        for turn in direct_turns
     ]
-    if exact_groups:
+    if exact_groups and not include_unmatched_otel:
+        exact_groups.sort(key=lambda group: group["started_at"])
+        for ordinal, group in enumerate(exact_groups, start=1):
+            group["ordinal"] = ordinal
         return exact_groups
+    exact_conversations = {
+        str(group.get("conversation_id") or "")
+        for group in exact_groups
+        if group.get("conversation_id")
+    }
+    exact_trace_ids = {
+        str(span.get("traceId") or "")
+        for span in trace_session["spans"]
+        for span_attributes in [attributes(span.get("attributes"))]
+        if (
+            span_attributes.get("gen_ai.conversation.id")
+            or span_attributes.get("copilot_chat.chat_session_id")
+        ) in exact_conversations
+        and span.get("traceId")
+    }
 
-    groups: list[dict[str, Any]] = []
-    current: dict[str, Any] | None = None
+    otel_groups_by_trace: dict[str, dict[str, Any]] = {}
+    untraced_groups: list[dict[str, Any]] = []
+    untraced_current: dict[str, Any] | None = None
     for span in sorted(trace_session["spans"], key=lambda item: item["_started"]):
         span_attributes = attributes(span.get("attributes"))
+        span_conversation = str(
+            span_attributes.get("gen_ai.conversation.id")
+            or span_attributes.get("copilot_chat.chat_session_id")
+            or ""
+        )
+        if (
+            span_conversation in exact_conversations
+            or str(span.get("traceId") or "") in exact_trace_ids
+        ):
+            continue
         name = str(span.get("name") or "")
+        trace_id = str(span.get("traceId") or "")
+        current = otel_groups_by_trace.get(trace_id) if trace_id else untraced_current
         raw_request = span_attributes.get("copilot_chat.user_request")
         starts_prompt = (
             name.startswith("chat ")
@@ -262,17 +297,16 @@ def group_prompts(
             and bool(span_attributes.get("gen_ai.conversation.id"))
             and (
                 current is None
-                or not span.get("traceId")
-                or str(span.get("traceId") or "") != current["trace_id"]
+                or not trace_id
             )
         )
         if starts_prompt:
-            if current:
-                groups.append(finalize_prompt_group(current))
+            if not trace_id and untraced_current:
+                untraced_groups.append(finalize_prompt_group(untraced_current))
             extracted_content = extract_prompt_content(raw_request)
             current = {
                 "ordinal": 0,
-                "trace_id": str(span.get("traceId") or ""),
+                "trace_id": trace_id,
                 "conversation_id": str(
                     span_attributes.get("gen_ai.conversation.id")
                     or span_attributes.get("copilot_chat.chat_session_id")
@@ -292,6 +326,10 @@ def group_prompts(
                 "models": {},
                 "usage_source": "otel_trace",
             }
+            if trace_id:
+                otel_groups_by_trace[trace_id] = current
+            else:
+                untraced_current = current
         if current is None:
             continue
         if name.startswith("chat "):
@@ -317,9 +355,15 @@ def group_prompts(
             )
         elif name.startswith("execute_tool "):
             current["tool_calls"] = add_counter(current["tool_calls"], 1)
-    if current:
-        groups.append(finalize_prompt_group(current))
+    otel_groups = [finalize_prompt_group(group) for group in otel_groups_by_trace.values()]
+    otel_groups.extend(untraced_groups)
+    if untraced_current:
+        otel_groups.append(finalize_prompt_group(untraced_current))
 
+    groups = exact_groups + [
+        group for group in otel_groups
+        if group["conversation_id"] not in exact_conversations
+    ]
     groups.sort(key=lambda group: group["started_at"])
     for ordinal, group in enumerate(groups, start=1):
         group["ordinal"] = ordinal

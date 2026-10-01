@@ -279,10 +279,17 @@ def stage_artifacts(
             enqueue_artifact(connection, row[0], False)
 
 
-def stage_log_changes(connection: sqlite3.Connection, logs: dict[str, tuple[Path, int, int]]) -> None:
+def stage_log_changes(
+    connection: sqlite3.Connection,
+    logs: dict[str, tuple[Path, int, int]],
+    *,
+    force: bool = False,
+) -> None:
     previous = {row[0]: row[1] for row in connection.execute("SELECT conversation_id, signature FROM indexing_logs")}
     current = {identifier: json.dumps([str(path), modified, size]) for identifier, (path, modified, size) in logs.items()}
     changed = {identifier for identifier in previous.keys() | current.keys() if previous.get(identifier) != current.get(identifier)}
+    if force:
+        changed.update(current)
     with connection:
         for identifier in changed:
             for row in connection.execute(
