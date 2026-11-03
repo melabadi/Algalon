@@ -3,23 +3,21 @@ import { access, mkdir, readFile, rename, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import {
   canonicalizeUsageCosts,
-  earliestSessionStart,
   evaluateOtelOnlyWindow,
   migrationUsageFromRefreshedEvidence,
   modelConfigurationSignature,
   publishAndCommitSession,
+  refreshArtifactInboxCursor,
   SESSION_CALCULATION_VERSION,
   sessionCoverageRegressed,
   sessionNeedsEvaluation,
   sessionStateForObservedBounds,
   sessionExperimentName
 } from './continuous.js';
-import {
-  collectDirectTurnUsage,
-  directTurnLogSignature,
-  reuseDirectTurnUsage,
-  type ExperimentUsage,
-  type TraceSessionEvidence
+import type {
+  ExperimentUsage,
+  TraceSession,
+  TraceSessionEvidence
 } from './experiment-evidence.js';
 import {
   IncrementalTraceSessionCollector,
@@ -36,18 +34,17 @@ interface TrackedSession {
   calculationVersion?: number;
   publishedUsageSignature?: string;
   publishedModelConfigurationSignature?: string;
-  directLogSignature?: string | null;
-  directUsage?: ExperimentUsage;
 }
 
 interface SessionWorkerState {
+  captureGeneration?: string;
   initializedAt: string;
   sessions: TrackedSession[];
   trace?: TraceEvidenceState;
 }
 
-const DIRECT_LOG_RECHECK_MILLISECONDS = 30_000;
-const DIRECT_LOG_SETTLE_MILLISECONDS = 5 * 60_000;
+/** State written before Copilot runtime capture holds VS Code sessions that the fresh-start upgrade retired. */
+const CAPTURE_GENERATION = 'copilot-runtime-v1';
 
 function positiveInteger(value: string | undefined, fallback: number, name: string): number {
   const parsed = Number(value ?? fallback);
@@ -73,7 +70,12 @@ async function waitForEndpoint(name: string, endpoint: string): Promise<void> {
 async function loadState(statePath: string): Promise<SessionWorkerState | null> {
   try {
     const state = JSON.parse(await readFile(statePath, 'utf8')) as SessionWorkerState;
+    if (state.captureGeneration !== CAPTURE_GENERATION) {
+      console.log(JSON.stringify({ event: 'session_state_discarded', reason: 'pre_runtime_capture_generation' }));
+      return null;
+    }
     return {
+      captureGeneration: CAPTURE_GENERATION,
       initializedAt: state.initializedAt,
       sessions: state.sessions.map((session) => ({
         sessionId: session.sessionId,
@@ -88,17 +90,11 @@ async function loadState(statePath: string): Promise<SessionWorkerState | null> 
           : {}),
         ...(session.publishedModelConfigurationSignature
           ? { publishedModelConfigurationSignature: session.publishedModelConfigurationSignature }
-          : {}),
-        ...(session.directLogSignature !== undefined
-          ? { directLogSignature: session.directLogSignature }
-          : {}),
-        ...(session.directUsage && typeof session.directUsage === 'object'
-          ? { directUsage: canonicalizeUsageCosts(session.directUsage) }
           : {})
       })),
       ...((state.trace?.version === 1 || state.trace?.version === 2 ||
         state.trace?.version === 3 || state.trace?.version === 4)
-        && state.trace.evidence?.version === 1
+        && state.trace.evidence?.version === 2
         ? { trace: state.trace }
         : {})
     };
@@ -124,6 +120,7 @@ async function publishTrackedSession(
   trackedSession: TrackedSession,
   completedAt: string,
   usage: ExperimentUsage,
+  attribution: Pick<TraceSession, 'surface' | 'mode'>,
   inboxCursor?: number
 ) {
   const result = await evaluateOtelOnlyWindow({
@@ -131,7 +128,9 @@ async function publishTrackedSession(
     usage,
     startedAt: trackedSession.startedAt,
     completedAt,
-    config
+    config,
+    surface: attribution.surface,
+    mode: attribution.mode
   }, {
     publish: async (payload, workerConfig) => {
       const { publishMetrics } = await import('./metrics.js');
@@ -150,6 +149,9 @@ async function publishTrackedSession(
     startedAt: trackedSession.startedAt,
     completedAt,
     status: result.status,
+    surface: attribution.surface,
+    sessionMode: attribution.mode,
+    ...(result.exclusionReason ? { exclusionReason: result.exclusionReason } : {}),
     usage: result.usage,
     source: result.source,
     benchmark: result.benchmark
@@ -189,7 +191,6 @@ async function main(): Promise<void> {
   );
   const outputDirectory = process.env.COPILOT_VALUE_OUTPUT_DIR ?? '/data/value/sessions';
   const inboxUrl = process.env.COPILOT_VALUE_OTEL_INBOX_URL;
-  const chatLogRoot = process.env.COPILOT_VALUE_CHAT_LOG_ROOT;
   await mkdir(outputDirectory, { recursive: true });
   const statePath = path.join(outputDirectory, 'state.json');
 
@@ -209,7 +210,8 @@ async function main(): Promise<void> {
   process.once('SIGTERM', stop);
 
   const initializedAt = new Date().toISOString();
-  const state = await loadState(statePath) ?? { initializedAt, sessions: [] };
+  const state: SessionWorkerState = await loadState(statePath) ??
+    { captureGeneration: CAPTURE_GENERATION, initializedAt, sessions: [] };
   const tracked = new Map(state.sessions.map((session) => [session.sessionId, session]));
   const traceCollector = inboxUrl
     ? new OtlpInboxSessionCollector(
@@ -224,7 +226,6 @@ async function main(): Promise<void> {
         state.trace?.version === 1 ? state.trace : undefined,
         config.benchmark.maxIdleGapSeconds,
       );
-  const directLogCheckedAt = new Map<string, number>();
   console.log(JSON.stringify({
     event: 'session_measurement_started',
     pollSeconds,
@@ -267,7 +268,7 @@ async function main(): Promise<void> {
           continue;
         }
         const refreshed = migrationEvidenceBySessionId.get(sessionId);
-        let usage = migrationUsageFromRefreshedEvidence(
+        const usage = migrationUsageFromRefreshedEvidence(
           artifact.usage as ExperimentUsage,
           refreshed,
           trackedSession.startedAt,
@@ -286,26 +287,6 @@ async function main(): Promise<void> {
           refreshed.session.startedAt,
           refreshed.session.endedAt
         );
-        delete migrationSession.directLogSignature;
-        delete migrationSession.directUsage;
-        const migrationDirectLogSignature = chatLogRoot && refreshed.session.chatSessionIds?.length
-          ? await directTurnLogSignature(chatLogRoot, refreshed.session.chatSessionIds)
-          : null;
-        const migrationDirectUsage = chatLogRoot && migrationDirectLogSignature &&
-          refreshed.session.chatSessionIds?.length
-          ? await collectDirectTurnUsage(
-            chatLogRoot,
-            refreshed.session.chatSessionIds,
-            new Date(refreshed.session.startedAt),
-            new Date(refreshed.session.endedAt),
-            refreshed.usage
-          ) ?? undefined
-          : undefined;
-        if (migrationDirectUsage) {
-          usage = canonicalizeUsageCosts(migrationDirectUsage);
-          migrationSession.directLogSignature = migrationDirectLogSignature;
-          migrationSession.directUsage = usage;
-        }
         const result = await publishAndCommitSession(
           tracked,
           sessionId,
@@ -316,6 +297,7 @@ async function main(): Promise<void> {
             candidate,
             refreshed.session.endedAt,
             usage,
+            refreshed.session,
             traceCollector.inboxCursor
           )
         );
@@ -390,29 +372,6 @@ async function main(): Promise<void> {
       stateChanged ||= migratedSessions > 0;
 
       const candidateSessionIds = new Set(scan.changedSessionIds);
-      const observedDirectLogSignatures = new Map<string, string | null>();
-      if (chatLogRoot) {
-        const capturedMilliseconds = Date.parse(capturedAt);
-        const latestMilliseconds = scan.latestTimestamp
-          ? Date.parse(scan.latestTimestamp)
-          : 0;
-        for (const session of discovered) {
-          if (!session.chatSessionIds?.length) continue;
-          const changed = candidateSessionIds.has(session.sessionId);
-          const recentlyEnded = latestMilliseconds - Date.parse(session.endedAt) <=
-            DIRECT_LOG_SETTLE_MILLISECONDS;
-          const checkDue = capturedMilliseconds - (directLogCheckedAt.get(session.sessionId) ?? 0) >=
-            DIRECT_LOG_RECHECK_MILLISECONDS;
-          if (!changed && (!recentlyEnded || !checkDue)) continue;
-          directLogCheckedAt.set(session.sessionId, capturedMilliseconds);
-          const signature = await directTurnLogSignature(chatLogRoot, session.chatSessionIds);
-          observedDirectLogSignatures.set(session.sessionId, signature);
-          const trackedSession = tracked.get(session.sessionId);
-          if (signature !== null && signature !== trackedSession?.directLogSignature) {
-            candidateSessionIds.add(session.sessionId);
-          }
-        }
-      }
 
       const evidence = traceCollector.evidence(candidateSessionIds);
       for (const entry of evidence) {
@@ -432,22 +391,7 @@ async function main(): Promise<void> {
         }
         const { candidate: publicationSession, boundsExpanded: sessionBoundsExpanded } =
           sessionStateForObservedBounds(trackedSession, session.startedAt, session.endedAt);
-        const directLogSignature = observedDirectLogSignatures.get(session.sessionId);
-        const directUsage = chatLogRoot && directLogSignature && session.chatSessionIds?.length
-          ? directLogSignature === publicationSession.directLogSignature && publicationSession.directUsage
-            ? reuseDirectTurnUsage(
-              canonicalizeUsageCosts(publicationSession.directUsage),
-              entry.usage
-            )
-            : await collectDirectTurnUsage(
-              chatLogRoot,
-              session.chatSessionIds,
-              new Date(session.startedAt),
-              new Date(session.endedAt),
-              entry.usage
-            ) ?? undefined
-          : undefined;
-        const sessionUsage = canonicalizeUsageCosts(directUsage ?? entry.usage);
+        const sessionUsage = canonicalizeUsageCosts(entry.usage);
         const currentUsageSignature = usageSignature(sessionUsage);
         if (!sessionNeedsEvaluation(
           trackedSession.publishedThrough,
@@ -459,14 +403,10 @@ async function main(): Promise<void> {
           currentModelConfigurationSignature,
           sessionBoundsExpanded
         )) {
-          if (directLogSignature !== undefined &&
-            (trackedSession.directLogSignature !== directLogSignature ||
-              Boolean(directUsage && !trackedSession.directUsage))) {
-            trackedSession.directLogSignature = directLogSignature;
-            if (directUsage) trackedSession.directUsage = directUsage;
-            else delete trackedSession.directUsage;
-            stateChanged = true;
-          }
+          await refreshArtifactInboxCursor(
+            path.join(outputDirectory, `${trackedSession.experiment}.json`),
+            traceCollector.inboxCursor
+          );
           continue;
         }
 
@@ -486,32 +426,23 @@ async function main(): Promise<void> {
             candidate,
             session.endedAt,
             sessionUsage,
+            session,
             traceCollector.inboxCursor
           )
         );
         pendingMigrationSessionIds.delete(session.sessionId);
-        if (directLogSignature !== undefined) {
-          publicationSession.directLogSignature = directLogSignature;
-          if (directUsage) publicationSession.directUsage = directUsage;
-          else delete publicationSession.directUsage;
-        }
         stateChanged = true;
         console.log(JSON.stringify({
           event: 'session_published',
           experiment: publicationSession.experiment,
           startedAt: publicationSession.startedAt,
           completedAt: session.endedAt,
+          surface: session.surface,
+          sessionMode: session.mode,
           aiCostUsd: result.usage.aiCostUsd,
           sourceEvidence: result.source.source,
           baseRoi: result.benchmark?.scenarios.base.roi ?? null
         }));
-      }
-      for (const session of discovered) {
-        const trackedSession = tracked.get(session.sessionId);
-        if (!trackedSession || trackedSession.directLogSignature !== undefined ||
-          observedDirectLogSignatures.get(session.sessionId) !== null) continue;
-        trackedSession.directLogSignature = null;
-        stateChanged = true;
       }
       if (stateChanged) {
         state.sessions = [...tracked.values()];

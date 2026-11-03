@@ -171,9 +171,14 @@ class PagesSiteTests(unittest.TestCase):
             "macOS and Linux",
             "Python 3.11+",
             "Docker with Compose",
-            "VS Code with GitHub Copilot",
+            "GitHub Copilot CLI, SDK, app, or VS Code",
             "Start Docker",
             "sign in to GitHub Copilot",
+            "select the Copilot harness",
+            "1.0.64 or later",
+            "1.0.100 or later",
+            "Local-harness sessions are not captured",
+            "backs up legacy VS Code evidence",
             "Before you install",
             "Free loopback ports",
             "3000",
@@ -217,7 +222,8 @@ class PagesSiteTests(unittest.TestCase):
         self.assertIn('href="#architecture"', self.html)
         self.assertLess(self.html.index('id="install"'), self.html.index('id="architecture"'))
         self.assertIn("React reads FastAPI only", self.html)
-        self.assertIn("read-only", self.html)
+        self.assertIn("Copilot runtime telemetry", self.html)
+        self.assertNotIn("VS Code logs", self.html)
         self.assertIn("127.0.0.1", self.html)
         diagram = ElementTree.parse(SITE / "architecture.svg").getroot()
         namespace = {"svg": "http://www.w3.org/2000/svg"}
@@ -233,7 +239,6 @@ class PagesSiteTests(unittest.TestCase):
             ("copilot", "collector"), ("collector", "api"), ("api", "dashboard"),
             ("api", "worker"), ("worker", "api"), ("collector", "metrics"),
             ("worker", "metrics"), ("metrics", "grafana"),
-            ("turn-logs", "worker"), ("turn-logs", "api"),
         })
         self.assertIsNone(diagram.find(".//svg:script", namespace))
 

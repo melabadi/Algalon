@@ -19,7 +19,9 @@ The stopwatch and AI usage are observed. Equivalent manual time is a scenario es
 
 ## 1. Measure the work
 
-Algalon groups privacy-scrubbed OTel spans by authoritative resource-level `session.id`. The raw ID stays local; published session labels contain only a short hash. Matching read-only VS Code direct-turn logs refine complete AI-credit, model, and token totals when available. If the complete matching log set is unavailable, the session uses its complete OTel aggregate rather than mixing partial sources.
+Algalon measures the shared GitHub Copilot runtime used by Copilot CLI, Copilot SDK applications, the Copilot app, and the VS Code Copilot harness. It accepts only `invoke_agent`, `chat`, and `execute_tool` spans from the `github-copilot` service or `github.copilot` instrumentation scope, and groups them by the runtime's authoritative `gen_ai.conversation.id`. A span without that ID joins its parent span's session; a span that cannot be attributed is dropped and counted. The raw ID stays local; published session labels contain only a short hash. AI credits, models, and tokens come only from unique `chat` spans, because the runtime also stamps cumulative credits on `invoke_agent` spans.
+
+Sessions are interactive by default. A session whose spans all carry `algalon.session.mode=automated` keeps its observed usage and time but produces no modeled value and stays out of modeled portfolio totals.
 
 | Activity | Evidence tracked | How the evidence is used |
 |---|---|---|
@@ -29,19 +31,20 @@ Algalon groups privacy-scrubbed OTel spans by authoritative resource-level `sess
 | Validation | Validation tool spans, merged tool runtime, nearby chat output and reasoning tokens, tool count, overlap-safe activity | Runtime, output and scenario-weighted reasoning review, and tool interactions estimate equivalent manual validation time. |
 | Unclassified | Cost-bearing chat or tool spans that match no configured phase | Measured unclassified engaged time is multiplied by an explicit scenario factor. |
 
-Tool names are normalized and matched by configured substring patterns. The bundled examples include:
+Tool names are split into lowercase identifier tokens and matched against configured patterns by whole token, so `fetch` matches `web_fetch` but `rg` never matches `merge_pull_request`. The bundled patterns are:
 
 | Phase | Example configured patterns |
 |---|---|
-| Planning | `manage_todo_list`, `todo`, `ask_questions`, `questions` |
-| Research | `search`, `read`, `fetch`, `grep`, `semantic`, `reference`, `documentation`, `list_dir`, `view_image`, `tool_search`, `usages` |
-| Coding | `apply_patch`, `create_file`, `create_directory`, `replace_string_in_file`, `edit_notebook_file`, `rename` |
-| Validation | `run_in_terminal`, `get_terminal_output`, `terminal`, `get_errors`, `test`, `playwright`, `screenshot`, `click`, `navigate`, `open_browser`, `run_task`, `task_output` |
+| Planning | `ask_user`, `exit_plan_mode`, `todo` |
+| Research | `view`, `rg`, `grep`, `glob`, `fetch`, `search`, `lsp` |
+| Coding | `edit`, `create`, `apply_patch`, `str_replace` |
+| Validation | `powershell`, `bash`, `shell`, `test`, `tests`, `playwright`, `browser`, `screenshot` |
 
 The classification rules are deliberately mechanical:
 
-- A cost-bearing model event is a `chat ...` span with `copilot_usage_nano_aiu > 0`.
-- A tool event is an `execute_tool ...` span or a span carrying the tool-name attribute.
+- A cost-bearing model event is a `chat ...` span with `github.copilot.nano_aiu > 0`.
+- A tool event is an `execute_tool ...` span. When `gen_ai.tool.name` is absent, the tool is the first token after `execute_tool`, so `execute_tool powershell pwsh.exe` is `powershell`.
+- Delegation and wait tools (`task`, `read_agent`, `write_agent`, `list_agents`) are excluded; the nested subagent's own spans carry that work.
 - A chat span inherits the first tool that starts from 0.25 seconds before through 3 seconds after the chat span ends.
 - A chat span with no associated matching tool is unclassified.
 - When one tool name matches multiple phases, precedence is planning, research, coding, then validation.
@@ -159,10 +162,10 @@ $$
 One AI credit is $0.01$:
 
 $$
-C_{AI}=\frac{\sum copilot\_usage\_nano\_aiu}{10^{11}}
+C_{AI}=\frac{\sum_{chat\ spans} github.copilot.nano\_aiu}{10^{11}}
 $$
 
-**Code correspondence:** OTel and direct-turn cost conversion is implemented in [src/experiment-evidence.ts](../src/experiment-evidence.ts) and [src/direct-turns.ts](../src/direct-turns.ts).
+**Code correspondence:** chat-span cost collection and conversion are implemented in [src/experiment-evidence.ts](../src/experiment-evidence.ts).
 
 The break-even manual duration is the point where realized labor benefit exactly covers observed AI usage:
 

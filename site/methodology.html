@@ -83,13 +83,13 @@
               <p class="eyebrow">From activity to evidence</p>
               <h2 id="pipeline-title">One session, one overlap-safe timeline</h2>
             </div>
-            <p>Algalon groups by authoritative OTel <code>session.id</code>, hashes public labels, and never invents repository identity.</p>
+            <p>Algalon groups by the Copilot runtime's authoritative <code>gen_ai.conversation.id</code>, hashes public labels, and never invents repository identity.</p>
           </div>
           <ol class="pipeline-flow">
-            <li><strong>Collect</strong><span>Copilot sends OTLP to the loopback Collector.</span></li>
+            <li><strong>Collect</strong><span>Copilot CLI, SDK apps, the Copilot app, and the VS Code Copilot harness send OTLP to the loopback Collector.</span></li>
             <li><strong>Scrub + commit</strong><span>The Collector removes sensitive fields; FastAPI transactionally deduplicates spans into SQLite.</span></li>
             <li><strong>Classify</strong><span>Planning, research, coding, validation, and unclassified activity share one timeline.</span></li>
-            <li><strong>Reconcile</strong><span>Matching direct-turn logs refine credits, models, and token totals locally.</span></li>
+            <li><strong>Count once</strong><span>AI credits, models, and tokens are summed once from runtime chat spans, never again from agent totals.</span></li>
             <li><strong>Evaluate</strong><span>The same benchmark engine calculates pessimistic, base, and optimistic branches.</span></li>
           </ol>
         </div>
@@ -123,7 +123,7 @@
               <div><dt>T<sub>manual,s</sub></dt><dd>Modeled equivalent manual minutes under scenario <em>s</em>.</dd></div>
               <div><dt>H</dt><dd>Configured fully loaded labor rate in USD/hour.</dd></div>
               <div><dt>ρ</dt><dd>Capacity realization: the share of saved time assumed to become economic value. Reported at 25%, 50%, and 75% so its leverage is visible.</dd></div>
-              <div><dt>C<sub>AI</sub></dt><dd>Observed direct-turn AI usage value, with OTel fallback.</dd></div>
+              <div><dt>C<sub>AI</sub></dt><dd>Observed AI usage value from Copilot runtime chat spans.</dd></div>
               <div><dt>R<sub>s</sub></dt><dd>Delivery-cost reduction, bounded at 100% and unaffected by how cheap the model is.</dd></div>
             </dl>
           </div>

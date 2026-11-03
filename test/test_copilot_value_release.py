@@ -78,7 +78,9 @@ class BundleConstructionTests(unittest.TestCase):
         self.assertIn("storage: file_storage/indexing_queue", collector)
         self.assertIn("extensions: [health_check, file_storage/indexing_queue]", collector)
         self.assertIn("fsync: true", collector)
-        self.assertIn("processors: [memory_limiter, transform/privacy]", collector)
+        self.assertIn("processors: [memory_limiter, filter/copilot-runtime, transform/privacy]", collector)
+        self.assertIn('resource.attributes["service.name"] == "github-copilot"', collector)
+        self.assertIn('instrumentation_scope.name == "github.copilot"', collector)
         self.assertIn(
             "traces_endpoint: http://app:8000/api/internal/otel/v1/traces",
             collector,
@@ -93,6 +95,29 @@ class BundleConstructionTests(unittest.TestCase):
         app = compose.split("  app:", 1)[1].split("volumes:", 1)[0]
         self.assertIn("- app", worker)
         self.assertNotIn("- worker", app)
+
+    def test_compose_reads_runtime_telemetry_without_vscode_workspace_storage(self) -> None:
+        project_root = Path(__file__).resolve().parents[1]
+        compose = (project_root / "docker" / "compose.yaml").read_text(encoding="utf-8")
+        example_environment = (project_root / "docker" / ".env.example").read_text(
+            encoding="utf-8"
+        )
+
+        copilot_value.validate_release_compose(compose)
+        for obsolete in (
+            "VSCODE_WORKSPACE_STORAGE_PATH",
+            "vscode-workspace-storage",
+            "COPILOT_VALUE_CHAT_LOG_ROOT",
+        ):
+            self.assertNotIn(obsolete, compose)
+            self.assertNotIn(obsolete, example_environment)
+        self.assertEqual(compose.count("COPILOT_VALUE_TRACE_ARCHIVE: /data/otel/traces.json"), 2)
+        for mount in (
+            "      - ${VSCODE_WORKSPACE_STORAGE_PATH}:/vscode-workspace-storage:ro\n",
+            "      COPILOT_VALUE_CHAT_LOG_ROOT: /vscode-workspace-storage\n",
+        ):
+            with self.assertRaisesRegex(copilot_value.CopilotValueError, "workspaceStorage"):
+                copilot_value.validate_release_compose(compose + mount)
 
     def test_app_image_copies_bundled_frontend_inputs(self) -> None:
         dockerfile = Path(__file__).resolve().parents[1] / "docker" / "App.Dockerfile"
@@ -294,7 +319,7 @@ class TelemetrySmokeTests(unittest.TestCase):
 
     def test_automatic_session_smoke_deduplicates_replay_and_accumulates_new_span(self) -> None:
         metric_result = {"status": "success", "data": {"result": [{"value": [0, "1"]}]}}
-        uuid_values = [SimpleNamespace(hex="smoke-id"), "session-uuid"]
+        uuid_values = [SimpleNamespace(hex="smoke-id"), "session-uuid", "automated-uuid"]
         root = Path("release")
         with (
             patch.object(release_smoke.uuid, "uuid4", side_effect=uuid_values),
@@ -304,31 +329,72 @@ class TelemetrySmokeTests(unittest.TestCase):
             patch.object(release_smoke, "wait_for_metric", return_value=metric_result),
             patch.object(release_smoke, "wait_for_app_session") as wait_for_app,
             patch.object(release_smoke, "wait_for_app_overview") as wait_for_overview,
+            patch.object(release_smoke, "wait_for_automated_exclusion") as wait_for_exclusion,
         ):
             experiment = copilot_value.run_telemetry_smoke(root)
 
         self.assertTrue(experiment.startswith("session-"))
-        self.assertEqual(post_json.call_count, 4)
+        self.assertEqual(post_json.call_count, 5)
         self.assertEqual(wait_for_app.call_count, 3)
         self.assertEqual(post_json.call_args_list[1].args[1], post_json.call_args_list[2].args[1])
         first_trace = post_json.call_args_list[1].args[1]
         second_trace = post_json.call_args_list[3].args[1]
-        self.assertIn("Synthetic portable smoke prompt", json.dumps(first_trace))
-        self.assertIn("Synthetic portable smoke prompt from late-arriving earlier span", json.dumps(second_trace))
+        automated_trace = post_json.call_args_list[4].args[1]
+        for trace in (first_trace, second_trace, automated_trace):
+            serialized = json.dumps(trace)
+            self.assertNotIn("Synthetic portable smoke prompt", serialized)
+            self.assertIn('"github-copilot"', serialized)
+            self.assertIn('"github.copilot"', serialized)
         self.assertIn("portable-smoke-session-uuid", json.dumps(first_trace))
         self.assertIn("portable-smoke-session-uuid", json.dumps(second_trace))
-        first_started = int(first_trace["resourceSpans"][0]["scopeSpans"][0]["spans"][0]["startTimeUnixNano"])
-        second_started = int(second_trace["resourceSpans"][0]["scopeSpans"][0]["spans"][0]["startTimeUnixNano"])
-        self.assertLess(second_started, first_started)
+        self.assertIn("apply_patch", json.dumps(first_trace))
+        self.assertNotIn("apply_patch", json.dumps(second_trace))
+        self.assertNotIn("algalon.session.mode", json.dumps(first_trace))
+        self.assertIn("portable-smoke-automated-automated-uuid", json.dumps(automated_trace))
+        self.assertIn("algalon.session.mode", json.dumps(automated_trace))
+
+        def earliest_start(trace: dict[str, object]) -> int:
+            spans = trace["resourceSpans"][0]["scopeSpans"][0]["spans"]
+            return min(int(span["startTimeUnixNano"]) for span in spans)
+
+        self.assertLess(earliest_start(second_trace), earliest_start(first_trace))
         self.assertEqual(
             wait_for_app.call_args_list[-1].kwargs["expected_started_milliseconds"],
-            second_started // 1_000_000,
+            earliest_start(second_trace) // 1_000_000,
         )
         wait_for_overview.assert_called_once_with(experiment)
+        wait_for_exclusion.assert_called_once()
+        self.assertNotEqual(wait_for_exclusion.call_args.args[0], experiment)
+
+    def test_smoke_trace_counts_cost_on_chat_and_root_with_a_parent_joined_tool(self) -> None:
+        payload = release_smoke.smoke_trace_payload("conversation-1", 1_000, include_tool=True)
+        resource_spans = payload["resourceSpans"][0]
+        spans = resource_spans["scopeSpans"][0]["spans"]
+        by_name = {span["name"].split()[0]: span for span in spans}
+        self.assertEqual(set(by_name), {"invoke_agent", "chat", "execute_tool"})
+        root = by_name["invoke_agent"]
+        self.assertEqual(by_name["chat"]["parentSpanId"], root["spanId"])
+        self.assertEqual(by_name["execute_tool"]["parentSpanId"], root["spanId"])
+        tool_keys = {attribute["key"] for attribute in by_name["execute_tool"]["attributes"]}
+        self.assertNotIn("gen_ai.conversation.id", tool_keys)
+        self.assertEqual(min(int(span["startTimeUnixNano"]) for span in spans), 1_000 * 1_000_000)
+        resource_keys = {attribute["key"] for attribute in resource_spans["resource"]["attributes"]}
+        self.assertNotIn("algalon.session.mode", resource_keys)
+
+        automated = release_smoke.smoke_trace_payload("conversation-2", 1_000, include_tool=False, automated=True)
+        resource = {
+            attribute["key"]: attribute["value"]["stringValue"]
+            for attribute in automated["resourceSpans"][0]["resource"]["attributes"]
+        }
+        self.assertEqual(resource["algalon.session.mode"], "automated")
+        self.assertEqual(resource["algalon.surface"], "sdk")
+        self.assertEqual(len(automated["resourceSpans"][0]["scopeSpans"][0]["spans"]), 2)
 
     def test_waits_for_safe_session_and_prompt_indexing(self) -> None:
         session = {
             "experiment": "session-test",
+            "surface": "cli",
+            "sessionMode": "interactive",
             "startedAt": "2026-08-05T10:00:00Z",
             "durationSeconds": 1,
             "aiCostUsd": 0.01,
@@ -347,7 +413,8 @@ class TelemetrySmokeTests(unittest.TestCase):
             },
         }
         prompts = [{
-            "content": "Synthetic portable smoke prompt",
+            "content": None,
+            "contentAvailable": False,
             "aiCredits": 1,
             "usageSource": "otel_trace",
         }]
@@ -359,7 +426,8 @@ class TelemetrySmokeTests(unittest.TestCase):
             copilot_value.wait_for_app_session("session-test", timeout_seconds=1)
 
         prompts.insert(0, {
-            "content": "Synthetic portable smoke prompt from late-arriving earlier span",
+            "content": None,
+            "contentAvailable": False,
             "aiCredits": 1,
             "usageSource": "otel_trace",
         })
@@ -379,10 +447,7 @@ class TelemetrySmokeTests(unittest.TestCase):
         ):
             copilot_value.wait_for_app_session(
                 "session-test",
-                expected_prompt_contents=(
-                    "Synthetic portable smoke prompt from late-arriving earlier span",
-                    "Synthetic portable smoke prompt",
-                ),
+                expected_prompt_count=2,
                 expected_ai_credits=2,
                 expected_input_tokens=200,
                 expected_output_tokens=100,
@@ -392,9 +457,41 @@ class TelemetrySmokeTests(unittest.TestCase):
                 timeout_seconds=1,
             )
 
+    def test_rejects_runtime_prompt_text_and_unexpected_attribution(self) -> None:
+        session = {"experiment": "session-test", "surface": "cli", "sessionMode": "interactive"}
+        cases = (
+            ("exposed prompt text", session, [{"content": "leaked text", "aiCredits": 1, "usageSource": "otel_trace"}]),
+            ("exposed prompt text", session, [{"contentAvailable": True, "aiCredits": 1, "usageSource": "otel_trace"}]),
+            (
+                "unexpected runtime attribution",
+                {**session, "sessionMode": "automated"},
+                [{"aiCredits": 1, "usageSource": "otel_trace"}],
+            ),
+            (
+                "unexpected usage evidence",
+                session,
+                [{"aiCredits": 1, "usageSource": "copilot_turn_log"}],
+            ),
+        )
+        for expected_error, response_session, prompts in cases:
+            with (
+                self.subTest(expected_error=expected_error, prompts=prompts),
+                patch.object(
+                    release_smoke,
+                    "urlopen",
+                    side_effect=[FakeResponse(200, response_session), FakeResponse(200, prompts)],
+                ),
+                patch.object(release_smoke.time, "monotonic", side_effect=[0, 0, 2]),
+                patch.object(release_smoke.time, "sleep"),
+                self.assertRaisesRegex(copilot_value.CopilotValueError, expected_error),
+            ):
+                release_smoke.wait_for_app_session("session-test", timeout_seconds=1)
+
     def test_waits_for_session_index_to_converge_after_late_earlier_span(self) -> None:
         stale_session = {
             "experiment": "session-test",
+            "surface": "cli",
+            "sessionMode": "interactive",
             "startedAt": "2026-08-05T10:00:00Z",
             "durationSeconds": 1,
             "aiCostUsd": 0.02,
@@ -420,16 +517,8 @@ class TelemetrySmokeTests(unittest.TestCase):
             },
         }
         prompts = [
-            {
-                "content": "Synthetic portable smoke prompt from late-arriving earlier span",
-                "aiCredits": 1,
-                "usageSource": "otel_trace",
-            },
-            {
-                "content": "Synthetic portable smoke prompt",
-                "aiCredits": 1,
-                "usageSource": "otel_trace",
-            },
+            {"content": None, "contentAvailable": False, "aiCredits": 1, "usageSource": "otel_trace"},
+            {"content": None, "contentAvailable": False, "aiCredits": 1, "usageSource": "otel_trace"},
         ]
         expected_started_milliseconds = round(
             datetime.fromisoformat(
@@ -452,7 +541,7 @@ class TelemetrySmokeTests(unittest.TestCase):
         ):
             release_smoke.wait_for_app_session(
                 "session-test",
-                expected_prompt_contents=tuple(prompt["content"] for prompt in prompts),
+                expected_prompt_count=len(prompts),
                 expected_ai_credits=2,
                 expected_input_tokens=200,
                 expected_output_tokens=100,
@@ -464,6 +553,8 @@ class TelemetrySmokeTests(unittest.TestCase):
     def test_times_out_when_late_span_session_bounds_never_reconcile(self) -> None:
         stale_session = {
             "experiment": "session-test",
+            "surface": "cli",
+            "sessionMode": "interactive",
             "startedAt": "2026-08-05T10:00:00Z",
             "durationSeconds": 1,
             "aiCostUsd": 0.02,
@@ -477,16 +568,8 @@ class TelemetrySmokeTests(unittest.TestCase):
             "scenarioResult": None,
         }
         prompts = [
-            {
-                "content": "Synthetic portable smoke prompt from late-arriving earlier span",
-                "aiCredits": 1,
-                "usageSource": "otel_trace",
-            },
-            {
-                "content": "Synthetic portable smoke prompt",
-                "aiCredits": 1,
-                "usageSource": "otel_trace",
-            },
+            {"content": None, "contentAvailable": False, "aiCredits": 1, "usageSource": "otel_trace"},
+            {"content": None, "contentAvailable": False, "aiCredits": 1, "usageSource": "otel_trace"},
         ]
         with (
             patch.object(
@@ -503,13 +586,54 @@ class TelemetrySmokeTests(unittest.TestCase):
         ):
             release_smoke.wait_for_app_session(
                 "session-test",
-                expected_prompt_contents=tuple(prompt["content"] for prompt in prompts),
+                expected_prompt_count=len(prompts),
                 expected_ai_credits=2,
                 expected_input_tokens=200,
                 expected_output_tokens=100,
                 expected_started_milliseconds=1_754_388_799_000,
                 timeout_seconds=1,
             )
+
+    def test_waits_for_automated_session_exclusion(self) -> None:
+        pending = {"experiment": "session-automated", "sessionMode": "interactive"}
+        excluded = {
+            "experiment": "session-automated",
+            "sessionMode": "automated",
+            "surface": "sdk",
+            "exclusionReason": "automated_session",
+            "benchmark": None,
+            "aiCredits": 1,
+        }
+        overview = {"totals": {"automatedSessions": 1}}
+        with (
+            patch.object(
+                release_smoke,
+                "urlopen",
+                side_effect=[
+                    FakeResponse(200, pending),
+                    FakeResponse(200, overview),
+                    FakeResponse(200, excluded),
+                    FakeResponse(200, overview),
+                ],
+            ),
+            patch.object(release_smoke.time, "monotonic", side_effect=[0, 0, 0]),
+            patch.object(release_smoke.time, "sleep") as sleep,
+        ):
+            release_smoke.wait_for_automated_exclusion("session-automated", timeout_seconds=1)
+        sleep.assert_called_once_with(0.5)
+
+        modeled = {**excluded, "benchmark": {"formulaVersion": 2}}
+        with (
+            patch.object(
+                release_smoke,
+                "urlopen",
+                side_effect=[FakeResponse(200, modeled), FakeResponse(200, overview)],
+            ),
+            patch.object(release_smoke.time, "monotonic", side_effect=[0, 0, 2]),
+            patch.object(release_smoke.time, "sleep"),
+            self.assertRaisesRegex(copilot_value.CopilotValueError, "was not excluded from modeled value"),
+        ):
+            release_smoke.wait_for_automated_exclusion("session-automated", timeout_seconds=1)
 
     def test_waits_for_available_portfolio_modeling(self) -> None:
         overview = {
@@ -590,6 +714,41 @@ class InstalledArtifactSmokeTests(unittest.TestCase):
                 )
             telemetry.assert_called_once_with(root)
 
+    def test_repository_smoke_installation_never_changes_the_user_environment(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            root = Path(temporary_directory) / "repository" / ".copilot-value"
+            create_release_tree(root)
+
+            def captured(command, *, cwd=None) -> str:
+                if any("process.versions.node" in str(part) for part in command):
+                    return "22\n"
+                if "diff" in command:
+                    return json.dumps({
+                        "filesModified": 1,
+                        "filesAdded": 0,
+                        "charactersAdded": 2,
+                        "charactersRemoved": 1,
+                    })
+                return json.dumps({"sessions": 2, "codingToolCalls": 3})
+
+            with (
+                patch.object(copilot_value, "install_root", return_value=root),
+                patch.object(copilot_value.shutil, "which", return_value="node"),
+                patch.object(copilot_value, "run_checked"),
+                patch.object(copilot_value, "run_captured", side_effect=captured),
+                patch.object(copilot_value, "command_install", return_value=0) as install,
+            ):
+                self.assertEqual(
+                    copilot_value.command_smoke_installation(
+                        argparse.Namespace(telemetry=False)
+                    ),
+                    0,
+                )
+            install_arguments = install.call_args.args[0]
+            self.assertTrue(install_arguments.skip_copilot_env)
+            self.assertTrue(install_arguments.skip_vscode_settings)
+            self.assertTrue(install_arguments.no_start)
+
 
 class BundleSmokeOrchestrationTests(unittest.TestCase):
     def test_smokes_pyz_without_telemetry(self) -> None:
@@ -615,6 +774,9 @@ class BundleSmokeOrchestrationTests(unittest.TestCase):
             ):
                 self.assertEqual(copilot_value.command_smoke_bundle(arguments), 0)
             self.assertEqual(run_checked.call_count, 2)
+            install_command = run_checked.call_args_list[0].args[0]
+            self.assertIn("--skip-vscode-settings", install_command)
+            self.assertIn("--skip-copilot-env", install_command)
             self.assertFalse(extraction.exists())
 
     def test_smokes_zip_with_telemetry_and_restores_displaced_containers(self) -> None:

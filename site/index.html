@@ -40,14 +40,14 @@
           <h1 id="intro-title">Algalon</h1>
           <p class="intro-lead">Your Copilot work, in perspective.</p>
           <p class="intro-copy">Understand AI costs, inspect your sessions, and compare modeled value. Your evidence stays on your workstation.</p>
-          <div class="intro-facts" aria-label="Prerequisites"><span>Python 3.11+</span><span>Docker with Compose</span><span>VS Code with GitHub Copilot</span></div>
+          <div class="intro-facts" aria-label="Prerequisites"><span>Python 3.11+</span><span>Docker with Compose</span><span>GitHub Copilot CLI, SDK, app, or VS Code</span></div>
         </div>
       </section>
 
       <section class="quick-start" id="install" aria-labelledby="install-title">
         <div class="section-inner">
           <div class="setup-heading">
-            <div><p class="eyebrow">Start here</p><h2 id="install-title">Get started</h2><p>Works on Windows, macOS, and Linux. Start Docker and sign in to GitHub Copilot in VS Code before installing. No Node.js required.</p></div>
+            <div><p class="eyebrow">Start here</p><h2 id="install-title">Get started</h2><p>Works on Windows, macOS, and Linux. Start Docker and sign in to GitHub Copilot before installing. No Node.js required.</p></div>
             <a class="button button-primary" href="https://github.com/melabadi/Algalon/releases/latest">Download the latest release</a>
           </div>
           <div class="setup-requirements" aria-labelledby="setup-requirements-title">
@@ -61,7 +61,7 @@
           <ol class="setup-steps">
             <li><span class="step-number">01</span><div><h3>Download</h3><p>Download the self-installing <strong>PYZ</strong> into the repository folder you want to use for Algalon. No extraction needed.</p></div></li>
             <li><span class="step-number">02</span><div><h3>Run</h3><p>Open a terminal in that folder and run the command for your platform below.</p></div></li>
-            <li><span class="step-number">03</span><div><h3>Open Algalon</h3><p>Reload VS Code, start a new Copilot session, then open <a href="http://127.0.0.1:3000/">your local dashboard</a>.</p></div></li>
+            <li><span class="step-number">03</span><div><h3>Open Algalon</h3><p>Open a new terminal for CLI or SDK apps, restart the Copilot app, or reload VS Code and select the Copilot harness. Start a new session, then open <a href="http://127.0.0.1:3000/">your local dashboard</a>.</p></div></li>
           </ol>
           <div class="setup-details">
             <details class="install-platform">
@@ -76,6 +76,7 @@
             </details>
           </div>
           <div class="setup-links"><a href="https://github.com/melabadi/Algalon/blob/main/docs/local-deployment/README.md">Full installation guide</a><a href="https://github.com/melabadi/Algalon/security/policy">Security &amp; verification</a><span>One installation covers all your local repositories.</span></div>
+          <p>Copilot CLI requires version 1.0.64 or later; 1.0.100 or later is recommended. VS Code Local-harness sessions are not captured. The first runtime-capture upgrade backs up legacy VS Code evidence before starting a fresh dataset; later upgrades preserve runtime evidence.</p>
         </div>
       </section>
 
@@ -86,17 +87,17 @@
             <p>One Docker Compose stack receives Copilot telemetry from all your local repositories. Algalon's collection, storage, and calculation stay on your workstation; GitHub Copilot still uses its normal online services.</p>
           </div>
           <figure class="architecture-figure">
-            <div class="architecture-diagram" role="region" aria-label="Architecture diagram" tabindex="0"><img src="architecture.svg" width="1320" height="620" loading="lazy" alt="Copilot sends telemetry to the Collector, then FastAPI and SQLite. A TypeScript worker calculates value from the local inbox. React reads the FastAPI API. Aggregate metrics go to VictoriaMetrics and optional Grafana; matched VS Code logs are read-only inputs."></div>
-            <figcaption><span>Solid arrows show telemetry and results. Dashed arrows show optional read-only log access.</span><a href="architecture.svg">Open full diagram</a></figcaption>
+            <div class="architecture-diagram" role="region" aria-label="Architecture diagram" tabindex="0"><img src="architecture.svg" width="1320" height="620" loading="lazy" alt="Copilot runtime clients send telemetry to the Collector, then FastAPI and SQLite. A TypeScript worker calculates value from the local inbox. React reads the FastAPI API. Aggregate metrics go to VictoriaMetrics and optional Grafana."></div>
+            <figcaption><span>Solid arrows show telemetry and results. Grafana is an optional view over aggregate metrics.</span><a href="architecture.svg">Open full diagram</a></figcaption>
           </figure>
           <ol class="architecture-steps">
-            <li><span>01</span><div><h3>Collect and scrub</h3><p>VS Code sends OTLP to the OpenTelemetry Collector on <code>127.0.0.1:4317/4318</code>. The Collector removes sensitive fields before forwarding traces to FastAPI.</p></div></li>
+            <li><span>01</span><div><h3>Collect and scrub</h3><p>Copilot CLI, SDK apps, the Copilot app, and the VS Code Copilot harness send OTLP to the OpenTelemetry Collector on <code>127.0.0.1:4317/4318</code>. The Collector keeps only Copilot runtime telemetry and removes sensitive fields before forwarding traces to FastAPI.</p></div></li>
             <li><span>02</span><div><h3>Keep a durable record</h3><p>FastAPI commits scrubbed spans to SQLite and deduplicates replays. A cursor lets the worker pick up new evidence, including late-arriving spans.</p></div></li>
             <li><span>03</span><div><h3>Calculate locally</h3><p>The TypeScript worker groups sessions, allocates engaged time by phase, and applies the scenario model. Results are stored in local files and indexed by FastAPI.</p></div></li>
             <li><span>04</span><div><h3>Inspect the results</h3><p>React reads FastAPI only, never VictoriaMetrics or raw trace archives. The worker also publishes aggregate metrics to VictoriaMetrics for optional Grafana views.</p></div></li>
           </ol>
           <div class="architecture-notes">
-            <p><strong>Local evidence, not a cloud service.</strong> Host ports bind to <code>127.0.0.1</code>. Matched VS Code turn logs are optional read-only inputs; unmatched usage falls back to OTel. Prompt text can be retained locally, but never becomes a metric label.</p>
+            <p><strong>Local evidence, not a cloud service.</strong> Host ports bind to <code>127.0.0.1</code>. The Collector strips message content before storage, so prompt text never reaches SQLite or a metric label.</p>
             <p><strong>Measured activity, modeled value.</strong> The worker never borrows source from the installation repository. Without matched retained-source evidence, coding benefit is zero. The <a href="methodology.html">methodology</a> explains the assumptions and limits.</p>
           </div>
           <p class="architecture-reference">This website is static and never connects to your local dashboard. <a href="https://github.com/melabadi/Algalon/blob/main/.github/modernize/assessment/engines/facts/architecture-diagram.md">Component reference</a></p>

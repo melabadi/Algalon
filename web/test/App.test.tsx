@@ -5,11 +5,13 @@ import { App } from '../src/App';
 import {
   activeCalibrationStorageKey,
   calibratedOverview,
+  calibratedSession,
   completeWorkerUsage,
   loadSavedCalibrations,
   savedCalibrationStorageKey,
   type CalibrationDraft
 } from '../src/features/calibration/model';
+import { messages } from '../src/i18n';
 import type {
   BenchmarkScenario,
   Insights,
@@ -104,6 +106,9 @@ function createSession(overrides: Partial<Session> = {}): Session {
     startedAt: '2026-08-05T10:00:00Z',
     completedAt: '2026-08-05T10:12:34Z',
     status: 'published',
+    surface: 'vscode',
+    sessionMode: 'interactive',
+    exclusionReason: null,
     durationSeconds,
     aiCostUsd,
     aiCredits,
@@ -141,6 +146,25 @@ function createSession(overrides: Partial<Session> = {}): Session {
   };
 }
 
+function createAutomatedSession(overrides: Partial<Session> = {}): Session {
+  return createSession({
+    experiment: 'session-automated',
+    status: 'excluded_automated',
+    surface: 'sdk',
+    sessionMode: 'automated',
+    exclusionReason: 'automated_session',
+    startedAt: '2026-08-05T11:00:00Z',
+    completedAt: '2026-08-05T11:12:34Z',
+    aiCostUsd: 2,
+    modelingStatus: 'unavailable',
+    scenarioResult: null,
+    formulaVersion: null,
+    currentFormula: false,
+    benchmark: null,
+    ...overrides
+  });
+}
+
 function createOverview(scenario: Scenario, sessions = [
   createSession(),
   createSession({
@@ -156,15 +180,20 @@ function createOverview(scenario: Scenario, sessions = [
   })
 ], modelingStatus: ModelingStatus = 'available'): Overview {
   const scale = scenario === 'pessimistic' ? 0.5 : scenario === 'optimistic' ? 2 : 1;
+  // Mirrors the API: automated sessions stay listed but only the automated pair of totals counts them.
+  const portfolio = sessions.filter((session) => session.sessionMode !== 'automated');
+  const automated = sessions.filter((session) => session.sessionMode === 'automated');
   return {
     scenario,
     days: 30,
     modelingStatus,
     totals: {
-      sessions: sessions.length,
-      prompts: sessions.reduce((total, session) => total + session.promptCount, 0),
-      durationSeconds: sessions.reduce((total, session) => total + session.durationSeconds, 0),
-      aiCostUsd: sessions.reduce((total, session) => total + session.aiCostUsd, 0),
+      sessions: portfolio.length,
+      prompts: portfolio.reduce((total, session) => total + session.promptCount, 0),
+      durationSeconds: portfolio.reduce((total, session) => total + session.durationSeconds, 0),
+      aiCostUsd: portfolio.reduce((total, session) => total + session.aiCostUsd, 0),
+      automatedSessions: automated.length,
+      automatedAiCostUsd: automated.reduce((total, session) => total + session.aiCostUsd, 0),
       taskTimeReduction: 0.4,
       estimatedManualMinutes: 20 * scale,
       estimatedMinutesSaved: 8 * scale,
@@ -187,10 +216,10 @@ const prompts: Prompt[] = [
     ordinal: 1,
     ordinalExact: '1',
     startedAt: '2026-08-05T10:00:10Z',
-    content: 'Build the feature',
-    contentAvailable: true,
-    capturedContentLength: 12_345,
-    capturedContentLengthExact: '12345',
+    content: '',
+    contentAvailable: false,
+    capturedContentLength: 0,
+    capturedContentLengthExact: '0',
     modelRequests: 2,
     modelRequestsExact: '2',
     toolCalls: 3,
@@ -206,7 +235,7 @@ const prompts: Prompt[] = [
     reasoningTokensExact: '100',
     aiCredits: 25,
     aiCostUsd: 0.25,
-    usageSource: 'copilot_turn_log',
+    usageSource: 'otel_trace',
     models: { 'model-a': 2 },
     modelsExact: { 'model-a': '2' },
     roi: null,
@@ -220,8 +249,8 @@ const prompts: Prompt[] = [
     startedAt: '2026-08-05T10:05:00Z',
     content: '',
     contentAvailable: false,
-    capturedContentLength: 10,
-    capturedContentLengthExact: '10',
+    capturedContentLength: 0,
+    capturedContentLengthExact: '0',
     modelRequests: 1,
     modelRequestsExact: '1',
     toolCalls: 0,
@@ -323,7 +352,7 @@ const methodology: Methodology = {
     portfolioAssistedCost: 'C_assisted,portfolio = (T_AI,portfolio / 60) * H + sum_i(C_AI,i)',
     grossCostSavings: 'Delta_C_gross,s = C_manual,s - C_assisted',
     benefit: 'B_s = (T_saved,s / 60) * H * rho',
-    aiCost: 'C_AI = sum(copilot_usage_nano_aiu) / 1e11',
+    aiCost: 'C_AI = sum(github.copilot.nano_aiu over chat spans) / 1e11',
     roi: 'ROI_s = (B_s - C_AI) / C_AI'
   }
 };
@@ -416,8 +445,7 @@ const insights: Insights = {
     sessionUsageCoverage: 1,
     completeSessions: 4,
     eligibleSessions: 4,
-    directUsageSessions: 1,
-    otelUsageSessions: 3,
+    otelUsageSessions: 4,
     requiredCoverage: 1,
     integrityPassed: true,
     degraded: false,
@@ -462,8 +490,7 @@ const degradedInsights: Insights = {
     sessionUsageCoverage: 0.75,
     completeSessions: 3,
     eligibleSessions: 4,
-    directUsageSessions: 1,
-    otelUsageSessions: 2,
+    otelUsageSessions: 3,
     requiredCoverage: 1,
     integrityPassed: false,
     degraded: true,
@@ -627,6 +654,55 @@ describe('overall workflow', () => {
     installFetch({ overviewSessions: [] });
     await renderRoute('/');
     expect(await screen.findByRole('heading', { name: 'No measured sessions yet' })).toBeVisible();
+    expect(screen.getByText(/Copilot CLI, Copilot app, SDK app, or VS Code Copilot-harness session/)).toBeVisible();
+  });
+
+  test('labels session surfaces and keeps automated sessions out of modeled totals', async () => {
+    installFetch({ overviewSessions: [
+      createSession(),
+      createSession({ experiment: 'session-cli', surface: 'cli', startedAt: '2026-08-05T12:00:00Z', completedAt: '2026-08-05T12:12:34Z' }),
+      createSession({ experiment: 'session-resumed', surface: 'mixed', startedAt: '2026-08-05T13:00:00Z', completedAt: '2026-08-05T13:12:34Z' }),
+      createAutomatedSession()
+    ] });
+    const user = await renderRoute('/');
+    expect(await screen.findByRole('heading', { name: 'Overall Copilot value' })).toBeVisible();
+
+    const row = (experiment: string) => screen.getByText(experiment).closest('tr')!;
+    expect(within(row('session-a')).getByText('VS Code')).toBeVisible();
+    expect(within(row('session-cli')).getByText('CLI')).toBeVisible();
+    expect(within(row('session-resumed')).getByText('Mixed')).toHaveAttribute('title', 'Session resumed across more than one surface.');
+    const automatedRow = row('session-automated');
+    expect(within(automatedRow).getByText('SDK')).toBeVisible();
+    expect(within(automatedRow).getByText('Automated · excluded from modeled value')).toBeVisible();
+    expect(within(automatedRow).getByText('$2.00')).toBeVisible();
+    expect(within(automatedRow).getAllByText('—')).toHaveLength(3);
+    expect(within(row('session-a')).queryByText('Automated · excluded from modeled value')).not.toBeInTheDocument();
+
+    expect(screen.getByRole('note')).toHaveTextContent('1 automated session excluded from modeled value · $2.00 observed AI usage');
+    expect(within(screen.getByText('Measured sessions', { selector: '.comparison-label' }).closest('.comparison-fact')!).getByText('3')).toBeVisible();
+    expect(within(screen.getByText('Observed AI usage').closest('.comparison-fact')!).getByText('$3.00')).toBeVisible();
+    // Three interactive 450s sessions in separate windows; the automated session's engaged time is excluded.
+    expect(within(screen.getByText('AI-assisted time').closest('.kpi')!).getByText('22.5m')).toBeVisible();
+    expect(within(screen.getByText('Automated sessions (not modeled)').closest('div')!).getByText('1')).toBeVisible();
+    expect(within(screen.getByText('Prompts indexed locally').closest('div')!).getByText('8')).toBeVisible();
+
+    const filter = screen.getByRole('searchbox', { name: 'Filter sessions' });
+    await user.type(filter, 'automated');
+    expect(screen.getByText('session-automated')).toBeVisible();
+    expect(screen.queryByText('session-a')).not.toBeInTheDocument();
+    await user.clear(filter);
+    await user.type(filter, 'vs code');
+    expect(screen.getByText('session-a')).toBeVisible();
+    expect(screen.queryByText('session-cli')).not.toBeInTheDocument();
+  });
+
+  test('omits the automated note and treats unknown surfaces as other', async () => {
+    installFetch({ overviewSessions: [createSession({ surface: 'future-host' as unknown as Session['surface'] })] });
+    await renderRoute('/');
+    expect(await screen.findByRole('heading', { name: 'Overall Copilot value' })).toBeVisible();
+    expect(within(screen.getByText('session-a').closest('tr')!).getByText('Other')).toBeVisible();
+    expect(screen.queryByRole('note')).not.toBeInTheDocument();
+    expect(screen.queryByText('Automated sessions (not modeled)')).not.toBeInTheDocument();
   });
 
   test('shows an API error and retries successfully', async () => {
@@ -650,6 +726,7 @@ describe('session and prompt routes', () => {
       ordinal: index + 1,
       ordinalExact: String(index + 1),
       content,
+      contentAvailable: true,
       capturedContentLength: null,
       capturedContentLengthExact: String(9007199254741001n + BigInt(index)),
       modelRequests: null,
@@ -671,6 +748,7 @@ describe('session and prompt routes', () => {
     const user = await renderRoute('/sessions/session-a/prompts');
 
     expect(await screen.findByRole('heading', { name: 'Prompts in this session' })).toBeVisible();
+    expect(screen.queryByRole('note')).not.toBeInTheDocument();
     expect(screen.getAllByText('9007199254740993').length).toBeGreaterThanOrEqual(1);
     expect(screen.getAllByText('9007199254740995').length).toBeGreaterThanOrEqual(2);
     expect(within(screen.getByText('Model requests').closest('.kpi')!).getByText('27021597764222982')).toBeVisible();
@@ -693,7 +771,8 @@ describe('session and prompt routes', () => {
     expect(within(screen.getByText('Tool calls').closest('.kpi')!).getByText('9007199254740998')).toBeVisible();
     expect(within(screen.getByText('Input tokens').closest('.kpi')!).getByText('9007199254740994')).toBeVisible();
     expect(within(screen.getByText('Output tokens').closest('.kpi')!).getByText('9007199254740995')).toBeVisible();
-    expect(screen.getByText(/Captured request length: 9007199254741001 characters/)).toBeVisible();
+    expect(document.querySelector('pre.prompt-content')).toHaveTextContent('Exact A');
+    expect(screen.queryByText(/Captured request length/)).not.toBeInTheDocument();
     expect(screen.getByText('9007199254740994 / 9007199254740993')).toBeVisible();
     expect(screen.getByText('9007199254740995 / 9007199254740996')).toBeVisible();
     expect(screen.getByText('model-a ×9007199254740993')).toBeVisible();
@@ -709,14 +788,17 @@ describe('session and prompt routes', () => {
 
     expect(cacheSort.closest('th')).toHaveAttribute('aria-sort', 'descending');
     const promptRows = within(cacheSort.closest('table')!).getAllByRole('row').slice(1);
-    expect(within(promptRows[0]).getByText('Prompt content storage disabled')).toBeVisible();
-    expect(within(promptRows[1]).getByText('Build the feature')).toBeVisible();
+    expect(within(promptRows[0]).getByText('Message 2')).toBeVisible();
+    expect(within(promptRows[1]).getByText('Message 1')).toBeVisible();
   });
 
   test('renders session evidence and navigates through prompts to prompt detail', async () => {
     installFetch();
     const user = await renderRoute('/sessions/session-a');
     expect(await screen.findByRole('heading', { name: 'Session detail' })).toBeVisible();
+    const header = screen.getByRole('heading', { name: 'Session detail' }).closest('header')!;
+    expect(within(header).getByText('VS Code')).toHaveAttribute('title', 'Session from the VS Code Copilot harness.');
+    expect(within(header).queryByText('Automated · excluded from modeled value')).not.toBeInTheDocument();
     expect(screen.getByRole('heading', { name: 'Source evidence' })).toBeVisible();
     expect(screen.getByText('Source + OTel')).toBeVisible();
     expect(screen.getByRole('heading', { name: 'Token and model evidence' })).toBeVisible();
@@ -724,10 +806,10 @@ describe('session and prompt routes', () => {
 
     await user.click(screen.getByRole('button', { name: /Level 3.*Prompts/ }));
     expect(await screen.findByRole('heading', { name: 'Prompts in this session' })).toBeVisible();
-    expect(screen.getByText('Prompt content storage disabled')).toBeVisible();
-    await user.click(screen.getByText('Build the feature'));
+    expect(screen.getByRole('note')).toHaveTextContent(messages.prompts.textUnavailable);
+    await user.click(screen.getByText('Message 1'));
     expect(await screen.findByRole('heading', { name: 'Prompt detail' })).toBeVisible();
-    expect(screen.getByText('VS Code turn log')).toBeVisible();
+    expect(screen.getByText('Copilot runtime chat spans')).toBeVisible();
 
     await user.click(screen.getByRole('link', { name: 'Prompts' }));
     expect(await screen.findByRole('heading', { name: 'Prompts in this session' })).toBeVisible();
@@ -735,13 +817,48 @@ describe('session and prompt routes', () => {
     expect(await screen.findByRole('heading', { name: 'Overall Copilot value' })).toBeVisible();
   });
 
-  test('renders disabled prompt content and OTel fallback details', async () => {
+  test('explains that runtime telemetry carries no prompt text', async () => {
+    installFetch();
+    await renderRoute('/sessions/session-a/prompts');
+    expect(await screen.findByRole('heading', { name: 'Prompts in this session' })).toBeVisible();
+    expect(screen.getByRole('note')).toHaveTextContent(
+      'Prompt text is not captured from Copilot runtime telemetry. Each row is one user message with its model requests, tool calls, tokens and AI credits.'
+    );
+    expect(screen.getByRole('button', { name: /Sort by User message/ })).toBeVisible();
+    const firstRow = screen.getByText('Message 1').closest('tr')!;
+    expect(within(firstRow).getByText('Text not captured')).toBeVisible();
+    expect(screen.getAllByText('Text not captured')).toHaveLength(2);
+    expect(screen.queryByText(/Prompt content storage/)).not.toBeInTheDocument();
+    expect(screen.queryByText(/turn log|direct VS Code|fallback/i)).not.toBeInTheDocument();
+  });
+
+  test('loads a text-less prompt detail route directly', async () => {
     installFetch();
     await renderRoute('/sessions/session-a/prompts/prompt-2');
     expect(await screen.findByRole('heading', { name: 'Prompt detail' })).toBeVisible();
-    expect(screen.getByText(/Prompt content storage is disabled/)).toBeVisible();
-    expect(screen.getByText('OTel trace fallback')).toBeVisible();
+    expect(screen.getByText(/grouped under this user message/)).toBeVisible();
+    expect(screen.getByRole('note')).toHaveTextContent(messages.prompts.textUnavailable);
+    expect(document.querySelector('pre.prompt-content')).toBeNull();
+    expect(screen.queryByText(/Captured request length|editor\/browser|Prompt content storage/)).not.toBeInTheDocument();
+    expect(screen.getByText('Copilot runtime chat spans')).toBeVisible();
     expect(screen.getByText('Unknown')).toBeVisible();
+  });
+
+  test('explains on session detail that automated sessions keep observed usage only', async () => {
+    installFetch({ sessionValue: createAutomatedSession() });
+    await renderRoute('/sessions/session-automated');
+    expect(await screen.findByRole('heading', { name: 'Session detail' })).toBeVisible();
+    const header = screen.getByRole('heading', { name: 'Session detail' }).closest('header')!;
+    expect(within(header).getByText('SDK')).toBeVisible();
+    expect(within(header).getByText('Automated · excluded from modeled value')).toBeVisible();
+    const band = screen.getByText('Automated session: observed usage only').closest('[role="note"]')!;
+    expect(band).toHaveTextContent('algalon.session.mode=automated');
+    expect(band).toHaveTextContent(/observed usage, tokens, tool calls, and AI cost are shown, but no developer value is modeled/i);
+    expect(screen.queryByRole('status', { name: '' })).not.toBeInTheDocument();
+    expect(within(screen.getByText('Manual-only time').closest('.kpi')!).getByText('—')).toBeVisible();
+    expect(within(screen.getByText('Realized net gain').closest('.kpi')!).getByText('—')).toBeVisible();
+    expect(within(screen.getByText('AI-assisted time').closest('.kpi')!).getByText('7.5m')).toBeVisible();
+    expect(within(screen.getByText('Observed AI usage').closest('.comparison-fact')!).getByText('$2.00')).toBeVisible();
   });
 
   test('renders an empty prompt chain', async () => {
@@ -1155,11 +1272,58 @@ describe('methodology and navigation', () => {
     expect(result.totals.estimatedAiAssistedTotalCostUsd).toBe(0);
   });
 
+  test('excludes automated sessions from custom portfolio modeling like the API', () => {
+    const interactive = createSession();
+    const automated = createAutomatedSession();
+    expect(completeWorkerUsage(automated)).toBe(true);
+    const interactiveOnly = calibratedOverview(createOverview('base', [interactive]), validCalibrationDraft, 'base');
+    const withAutomated = calibratedOverview(createOverview('base', [interactive, automated]), validCalibrationDraft, 'base');
+
+    expect(interactiveOnly.modelingStatus).toBe('available');
+    expect(withAutomated.modelingStatus).toBe('available');
+    expect(withAutomated.totals).toEqual({ ...interactiveOnly.totals, automatedSessions: 1, automatedAiCostUsd: 2 });
+    expect(withAutomated.sessions.map((session) => session.experiment)).toEqual(['session-a', 'session-automated']);
+    expect(withAutomated.sessions[0].scenarioResult).not.toBeNull();
+    expect(withAutomated.sessions[1]).toMatchObject({
+      scenario: 'base', modelingStatus: 'unavailable', scenarioResult: null, benchmark: null, aiCostUsd: 2
+    });
+    expect(calibratedSession(automated, validCalibrationDraft, 'optimistic')).toMatchObject({
+      scenario: 'optimistic', modelingStatus: 'unavailable', scenarioResult: null, benchmark: null
+    });
+
+    const unmarked: Session = { ...automated, sessionMode: 'interactive', exclusionReason: null };
+    const withUnmarked = calibratedOverview(createOverview('base', [interactive, unmarked]), validCalibrationDraft, 'base');
+    expect(withUnmarked.totals.estimatedManualMinutes).toBeGreaterThan(withAutomated.totals.estimatedManualMinutes);
+
+    const malformedAutomated = createAutomatedSession({ usage: { ...automated.usage, engagedSeconds: undefined } });
+    expect(completeWorkerUsage(malformedAutomated)).toBe(false);
+    expect(calibratedOverview(
+      createOverview('base', [interactive, malformedAutomated]), validCalibrationDraft, 'base'
+    ).modelingStatus).toBe('available');
+    const automatedOnly = calibratedOverview(createOverview('base', [automated]), validCalibrationDraft, 'base');
+    expect(automatedOnly.modelingStatus).toBe('unavailable');
+    expect(automatedOnly.totals.netValueUsd).toBe(0);
+    expect(automatedOnly.totals.roi).toBeNull();
+  });
+
+  test('accepts only Copilot runtime trace usage for custom modeling', () => {
+    const legacy = createSession({
+      usage: { ...createUsage(), source: 'copilot_turn_log' as unknown as Session['usage']['source'] }
+    });
+    expect(completeWorkerUsage(createSession())).toBe(true);
+    expect(completeWorkerUsage(legacy)).toBe(false);
+    expect(calibratedOverview(createOverview('base', [legacy]), validCalibrationDraft, 'base').modelingStatus).toBe('invalid');
+  });
+
   test('renders one category-grouped metric table with sources and operational signals', async () => {
     installFetch();
     await renderRoute('/insights');
     expect(await screen.findByRole('heading', { name: 'Session insights' })).toBeVisible();
     expect(screen.getByText(/authoritative settled-session usage/)).toBeVisible();
+    expect(screen.queryByText('Direct usage')).not.toBeInTheDocument();
+    expect(within(screen.getByText('OTel usage').closest('.kpi')!).getByText('4')).toBeVisible();
+    expect(screen.getByText(/Session usage comes from Copilot runtime OTel/)).toBeVisible();
+    expect(screen.queryByText(/direct-turn/)).not.toBeInTheDocument();
     expect(screen.getByRole('heading', { name: 'Metrics and signals' })).toBeVisible();
     expect(screen.queryByRole('heading', { name: 'Evidence and workflow signals' })).not.toBeInTheDocument();
     expect(screen.queryByRole('heading', { name: 'Usage measurements' })).not.toBeInTheDocument();
@@ -1213,6 +1377,16 @@ describe('methodology and navigation', () => {
     expect(await screen.findByRole('heading', { name: 'How we measure ROI' })).toBeVisible();
     expect(screen.getByText('apply_patch')).toBeVisible();
     expect(screen.getByText('No matching configured pattern')).toBeVisible();
+    const rules = screen.getByLabelText('Event classification rules');
+    expect(rules).toHaveTextContent('The Copilot runtime gen_ai.conversation.id groups the spans; tool spans without it join through their parent span.');
+    expect(rules).toHaveTextContent('AI credits are summed once from chat spans');
+    expect(rules).toHaveTextContent('the root invoke_agent total is never added');
+    expect(rules).toHaveTextContent('algalon.session.mode=automated keeps its observed usage and AI cost, but no developer value is modeled');
+    expect(rules).not.toHaveTextContent(/session\.id groups|fallback/);
+    expect(screen.getByText('Observed only; no modeled value')).toBeVisible();
+    expect(screen.getByText(/Automated sessions stay listed with their observed usage/)).toBeVisible();
+    expect(screen.queryByText(/Direct VS Code turns/)).not.toBeInTheDocument();
+    expect(screen.getAllByRole('term', { name: /^github\.copilot\.nano_aiu: / }).length).toBeGreaterThan(0);
     expect(screen.getByText('Base selected')).toBeVisible();
     expect(screen.getByText(/There is no separate without-AI stopwatch/)).toBeVisible();
     expect(screen.getByText(/At the current 50% setting/)).toBeVisible();

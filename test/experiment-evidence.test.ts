@@ -1,119 +1,38 @@
 import assert from 'node:assert/strict';
-import { mkdir, mkdtemp, rename, rm, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, readFile, rename, rm, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
 import {
   aggregateTraceSessionEvidence,
-  collectDirectTurnUsage,
   collectSourceStats,
   collectTraceSessionEvidence,
-  directTurnLogSignature,
   discoverTraceSessions,
   readStableTraceArchive,
-  reuseDirectTurnUsage,
   TraceEvidenceAccumulator,
   summarizeTraceRecords
 } from '../src/experiment-evidence.js';
 import { readIncrementalJsonLines, readStableJsonLines } from '../src/trace-archive.js';
 
-test('aggregates direct turn usage from every conversation while preserving OTel phases', async () => {
-  const root = await mkdtemp(path.join(os.tmpdir(), 'copilot-value-turn-'));
-  try {
-    const chatSessionId = 'conversation-test';
-    const logDirectory = path.join(
-      root,
-      'workspace',
-      'GitHub.copilot-chat',
-      'debug-logs',
-      chatSessionId
-    );
-    await mkdir(logDirectory, { recursive: true });
-    const start = new Date('2026-08-05T10:00:00Z');
-    const events = [
-      { ts: start.getTime(), type: 'user_message', attrs: { content: 'Prompt' } },
-      { ts: start.getTime() + 100, type: 'llm_request', attrs: { model: 'gpt-test', inputTokens: 100, cachedTokens: 80, outputTokens: 20, reasoningTokens: 5, copilotUsageNanoAiu: 2_000_000_000 } },
-      { ts: start.getTime() + 200, type: 'llm_request', attrs: { model: 'gpt-test', inputTokens: 150, cachedTokens: 100, outputTokens: 30, reasoningTokens: 7, copilotUsageNanoAiu: 3_000_000_000 } },
-      { ts: start.getTime() + 1_100, type: 'llm_request', attrs: { model: 'gpt-test', inputTokens: 50, cachedTokens: 0, outputTokens: 10, reasoningTokens: 0, copilotUsageNanoAiu: 1_000_000_000 } },
-      { ts: start.getTime() + 1_200, type: 'user_message', attrs: { content: 'Outside session' } },
-      { ts: start.getTime() + 1_300, type: 'llm_request', attrs: { model: 'gpt-test', inputTokens: 999, cachedTokens: 0, outputTokens: 999, reasoningTokens: 0, copilotUsageNanoAiu: 9_000_000_000 } },
-    ];
-    await writeFile(
-      path.join(logDirectory, 'main.jsonl'),
-      `${events.map((event) => JSON.stringify(event)).join('\n')}\n`
-    );
-    const secondChatSessionId = 'conversation-second';
-    const secondLogDirectory = path.join(
-      root,
-      'workspace',
-      'GitHub.copilot-chat',
-      'debug-logs',
-      secondChatSessionId
-    );
-    await mkdir(secondLogDirectory, { recursive: true });
-    await writeFile(
-      path.join(secondLogDirectory, 'main.jsonl'),
-      `${[
-        { ts: start.getTime() + 300, type: 'user_message', attrs: { content: 'Second conversation' } },
-        { ts: start.getTime() + 400, type: 'llm_request', attrs: { model: 'gpt-test', inputTokens: 40, cachedTokens: 10, outputTokens: 8, reasoningTokens: 2, copilotUsageNanoAiu: 1_000_000_000 } }
-      ].map((event) => JSON.stringify(event)).join('\n')}\n`
-    );
-    const phaseTiming = summarizeTraceRecords(
-      [{ resourceSpans: [] }],
-      start,
-      new Date(start.getTime() + 1000),
-      { planning: ['todo'], research: ['read'], coding: ['apply_patch'], validation: ['run_in_terminal'] }
-    );
-    const phaseUsage = phaseTiming.phases;
+type Attribute = { key: string; value: Record<string, unknown> };
+type FixtureSpan = { traceId: string; spanId: string; parentSpanId?: string; name: string; attributes: Attribute[] };
+type FixturePayload = {
+  resourceSpans: Array<{
+    resource: { attributes: Attribute[] };
+    scopeSpans: Array<{ scope: { name: string }; spans: FixtureSpan[] }>;
+  }>;
+};
+type ExpectedSession = {
+  chatSpans: number; toolSpans: number; nanoAiu: number; inputTokens: number; cacheReadTokens: number;
+  outputTokens: number; reasoningTokens: number; surface: string; mode: string; startedAt: string; endedAt: string;
+};
 
-    const usage = await collectDirectTurnUsage(
-      root,
-      [chatSessionId, secondChatSessionId],
-      start,
-      new Date(start.getTime() + 1000),
-      phaseTiming
-    );
-
-    assert.ok(usage);
-    assert.equal(usage.source, 'copilot_turn_log');
-    assert.equal(usage.chatSpans, 4);
-    assert.equal(usage.inputTokens, 340);
-    assert.equal(usage.cacheReadTokens, 190);
-    assert.equal(usage.reasoningTokens, 14);
-    assert.equal(usage.aiCredits, 7);
-    assert.equal(usage.aiCostUsd, 0.07);
-    assert.deepEqual(usage.phases, phaseUsage);
-    const refreshedPhases = structuredClone(phaseUsage);
-    refreshedPhases.coding.allocatedSeconds = 42;
-    const reused = reuseDirectTurnUsage(usage, { ...phaseTiming, phases: refreshedPhases });
-    assert.equal(reused.aiCredits, usage.aiCredits);
-    assert.equal(reused.inputTokens, usage.inputTokens);
-    assert.equal(reused.phases.coding.allocatedSeconds, 42);
-
-    const initialSignature = await directTurnLogSignature(root, [chatSessionId, secondChatSessionId]);
-    assert.match(initialSignature ?? '', /^[a-f0-9]{64}$/);
-    await writeFile(
-      path.join(secondLogDirectory, 'main.jsonl'),
-      `${JSON.stringify({ ts: start.getTime(), type: 'user_message' })}\n`
-    );
-    assert.notEqual(
-      await directTurnLogSignature(root, [chatSessionId, secondChatSessionId]),
-      initialSignature
-    );
-
-    const partialUsage = await collectDirectTurnUsage(
-      root,
-      [chatSessionId, 'conversation-missing'],
-      start,
-      new Date(start.getTime() + 1000),
-      phaseTiming
-    );
-    assert.equal(partialUsage, null);
-    assert.equal(await directTurnLogSignature(root, [chatSessionId, 'conversation-missing']), null);
-  } finally {
-    await rm(root, { recursive: true, force: true });
-  }
-});
+const runtimePatterns = {
+  planning: ['ask_user', 'exit_plan_mode', 'todo'],
+  research: ['view', 'rg', 'grep', 'glob', 'fetch', 'search'],
+  coding: ['edit', 'create', 'apply_patch'],
+  validation: ['powershell', 'bash', 'shell', 'test']
+};
 
 function attribute(key: string, value: string) {
   return { key, value: { stringValue: value } };
@@ -123,33 +42,134 @@ function integerAttribute(key: string, value: number) {
   return { key, value: { intValue: String(value) } };
 }
 
-test('aggregates model tokens and authoritative AI credits from unique OTel chat spans', () => {
-  const span = {
+function flatten(attributes: Attribute[]): Record<string, unknown> {
+  return Object.fromEntries(attributes.map((item) => [item.key, Object.values(item.value)[0]]));
+}
+
+function stampedResource(sessionKey: string, surface = 'cli', mode = 'interactive') {
+  return {
+    attributes: [
+      attribute('service.name', 'github-copilot'),
+      attribute('algalon.session.key', sessionKey),
+      attribute('algalon.source.surface', surface),
+      attribute('algalon.session.mode', mode)
+    ]
+  };
+}
+
+/** Mirrors FastAPI ingestion: accept runtime GenAI spans, resolve the conversation, and stamp one span per record. */
+function stampFixture(payloads: FixturePayload[]) {
+  const sessionBySpan = new Map<string, string>();
+  const records: unknown[] = [];
+  for (const payload of payloads) {
+    const pending: Array<{ resource: Record<string, unknown>; span: FixtureSpan }> = [];
+    for (const resourceSpan of payload.resourceSpans) {
+      const resource = flatten(resourceSpan.resource.attributes);
+      for (const scopeSpan of resourceSpan.scopeSpans) {
+        if (resource['service.name'] !== 'github-copilot' && scopeSpan.scope.name !== 'github.copilot') continue;
+        for (const span of scopeSpan.spans) {
+          const operation = flatten(span.attributes)['gen_ai.operation.name'];
+          if (operation !== 'chat' && operation !== 'execute_tool' && operation !== 'invoke_agent') continue;
+          pending.push({ resource, span });
+        }
+      }
+    }
+    for (const { span } of pending) {
+      const conversation = flatten(span.attributes)['gen_ai.conversation.id'];
+      if (typeof conversation !== 'string') continue;
+      sessionBySpan.set(`${span.traceId}|${span.spanId}`, conversation);
+      if (span.parentSpanId) sessionBySpan.set(`${span.traceId}|${span.parentSpanId}`, conversation);
+    }
+    for (const { resource, span } of pending) {
+      const sessionKey = flatten(span.attributes)['gen_ai.conversation.id'] as string | undefined ??
+        sessionBySpan.get(`${span.traceId}|${span.parentSpanId}`);
+      assert.ok(sessionKey, `span ${span.spanId} must resolve to a session`);
+      const surface = typeof resource['algalon.surface'] === 'string' ? resource['algalon.surface'] as string
+        : resource['service.namespace'] === 'vscode.agent-host' ? 'vscode' : 'cli';
+      const mode = resource['algalon.session.mode'] === 'automated' ? 'automated' : 'interactive';
+      records.push({ resourceSpans: [{ resource: stampedResource(sessionKey, surface, mode), scopeSpans: [{ spans: [span] }] }] });
+    }
+  }
+  return records;
+}
+
+test('maps the shared Copilot runtime contract fixture into session evidence', async () => {
+  const fixture = JSON.parse(await readFile(path.join('test', 'fixtures', 'copilot-runtime-otlp.json'), 'utf8')) as {
+    payloads: FixturePayload[];
+    expected: { sessions: Record<string, ExpectedSession>; acceptedSpans: number };
+  };
+  const records = stampFixture(fixture.payloads);
+  assert.equal(records.length, fixture.expected.acceptedSpans);
+
+  const evidence = aggregateTraceSessionEvidence(records, runtimePatterns);
+  assert.deepEqual(
+    evidence.map((entry) => entry.session.sessionId).sort(),
+    Object.keys(fixture.expected.sessions).sort()
+  );
+  for (const entry of evidence) {
+    const expected = fixture.expected.sessions[entry.session.sessionId] as ExpectedSession;
+    assert.equal(entry.session.surface, expected.surface);
+    assert.equal(entry.session.mode, expected.mode);
+    assert.equal(entry.session.startedAt, expected.startedAt);
+    assert.equal(entry.session.endedAt, expected.endedAt);
+    assert.equal(entry.usage.chatSpans, expected.chatSpans);
+    assert.equal(entry.usage.inputTokens, expected.inputTokens);
+    assert.equal(entry.usage.cacheReadTokens, expected.cacheReadTokens);
+    assert.equal(entry.usage.outputTokens, expected.outputTokens);
+    assert.equal(entry.usage.reasoningTokens, expected.reasoningTokens);
+    assert.ok(Math.abs(entry.usage.aiCredits - expected.nanoAiu / 1e9) < 1e-12);
+    assert.ok(Math.abs(entry.usage.aiCostUsd - expected.nanoAiu / 1e11) < 1e-12);
+  }
+
+  const cli = evidence.find((entry) => entry.session.sessionId === 'cli-session-0001');
+  assert.ok(cli);
+  assert.equal(cli.usage.phases.research.toolCalls, 4);
+  assert.equal(cli.usage.phases.validation.toolCalls, 2);
+  assert.equal(cli.usage.phases.coding.toolCalls, 1);
+  assert.equal(cli.usage.phases.unclassified.toolCalls, 0, 'the task delegation span is a container, not a tool call');
+  const vscode = evidence.find((entry) => entry.session.sessionId === 'vscode-session-0001');
+  assert.equal(vscode?.usage.phases.coding.toolCalls, 1, 'tool spans without a conversation id join their parent');
+});
+
+test('counts AI credits once from chat spans and never from invoke_agent totals', () => {
+  const chat = {
     traceId: 'trace-1',
     spanId: 'span-1',
+    parentSpanId: 'root-1',
     name: 'chat gpt-test',
     startTimeUnixNano: '1785859260000000000',
+    endTimeUnixNano: '1785859261000000000',
     attributes: [
+      attribute('gen_ai.operation.name', 'chat'),
       attribute('gen_ai.request.model', 'gpt-test'),
       integerAttribute('gen_ai.usage.input_tokens', 100),
       integerAttribute('gen_ai.usage.cache_read.input_tokens', 80),
       integerAttribute('gen_ai.usage.output_tokens', 20),
-      integerAttribute('gen_ai.usage.reasoning_tokens', 5),
-      integerAttribute('copilot_chat.copilot_usage_nano_aiu', 2_500_000_000)
+      attribute('gen_ai.usage.reasoning.output_tokens', '5'),
+      { key: 'github.copilot.nano_aiu', value: { doubleValue: 2_500_000_000 } }
+    ]
+  };
+  const root = {
+    traceId: 'trace-1',
+    spanId: 'root-1',
+    name: 'invoke_agent',
+    startTimeUnixNano: '1785859259000000000',
+    endTimeUnixNano: '1785859262000000000',
+    attributes: [
+      attribute('gen_ai.operation.name', 'invoke_agent'),
+      integerAttribute('gen_ai.usage.input_tokens', 100),
+      { key: 'github.copilot.nano_aiu', value: { doubleValue: 2_500_000_000 } }
     ]
   };
   const records = [{
-    resourceSpans: [{
-      resource: { attributes: [attribute('service.name', 'copilot-chat')] },
-      scopeSpans: [{ spans: [span, span] }]
-    }]
+    resourceSpans: [{ resource: stampedResource('session-1'), scopeSpans: [{ spans: [chat, chat, root] }] }]
   }];
 
   const usage = summarizeTraceRecords(
     records,
-    new Date('2026-08-04T16:00:59Z'),
+    new Date('2026-08-04T16:00:58Z'),
     new Date('2026-08-04T16:22:28Z'),
-    { planning: ['todo'], research: ['read'], coding: ['apply_patch'], validation: ['run_in_terminal'] }
+    runtimePatterns
   );
 
   assert.equal(usage.chatSpans, 1);
@@ -163,11 +183,6 @@ test('aggregates model tokens and authoritative AI credits from unique OTel chat
   assert.deepEqual(usage.models.map(({ model, requests }) => ({ model, requests })), [
     { model: 'gpt-test', requests: 1 }
   ]);
-  assert.equal(Object.values(usage.phases).reduce((total, phase) => total + phase.allocatedSeconds, 0), 0);
-  assert.equal(usage.phases.unclassified.allocatedSeconds, 0);
-  assert.equal(usage.engagedSeconds, 0);
-  assert.equal(usage.activityDensity, 0);
-  assert.equal(usage.elapsedSeconds, 1289);
 });
 
 test('partitions elapsed time across planning, research, coding, and validation without overlap', () => {
@@ -182,15 +197,19 @@ test('partitions elapsed time across planning, research, coding, and validation 
   ) => ({
     traceId: 'trace-1', spanId: id, name, startTimeUnixNano: nanos(start), endTimeUnixNano: nanos(end), attributes
   });
+  const tool = (id: string, toolName: string, start: number, end: number, spanName = `execute_tool ${toolName}`) =>
+    span(id, spanName, start, end, [attribute('gen_ai.operation.name', 'execute_tool'), attribute('gen_ai.tool.name', toolName)]);
+  const chat = (id: string, start: number, end: number) =>
+    span(id, 'chat model', start, end, [attribute('gen_ai.operation.name', 'chat'), integerAttribute('github.copilot.nano_aiu', 1)]);
   const records = [{ resourceSpans: [{
-    resource: { attributes: [attribute('service.name', 'copilot-chat')] },
+    resource: stampedResource('session-phases'),
     scopeSpans: [{ spans: [
-      span('chat-research', 'chat model', 0, 10, [integerAttribute('copilot_chat.copilot_usage_nano_aiu', 1)]),
-      span('read', 'execute_tool read_file', 10, 15, [attribute('gen_ai.tool.name', 'read_file')]),
-      span('chat-code', 'chat model', 20, 30, [integerAttribute('copilot_chat.copilot_usage_nano_aiu', 1)]),
-      span('patch', 'execute_tool apply_patch', 30, 35, [attribute('gen_ai.tool.name', 'apply_patch')]),
-      span('test', 'execute_tool run_in_terminal', 40, 50, [attribute('gen_ai.tool.name', 'run_in_terminal')]),
-      span('after-end', 'execute_tool run_in_terminal', 55, 80, [attribute('gen_ai.tool.name', 'run_in_terminal')])
+      chat('chat-research', 0, 10),
+      tool('view', 'view', 10, 15),
+      chat('chat-code', 20, 30),
+      tool('patch', 'apply_patch', 30, 35),
+      tool('test', 'powershell', 40, 50, 'execute_tool powershell pwsh.exe'),
+      tool('after-end', 'powershell', 55, 80)
     ] }]
   }] }];
 
@@ -198,7 +217,7 @@ test('partitions elapsed time across planning, research, coding, and validation 
     records,
     new Date('2026-08-04T16:00:00Z'),
     new Date('2026-08-04T16:01:00Z'),
-    { planning: ['todo'], research: ['read'], coding: ['apply_patch'], validation: ['run_in_terminal'] }
+    runtimePatterns
   );
   const allocated = Object.values(usage.phases).reduce((total, phase) => total + phase.allocatedSeconds, 0);
   assert.ok(Math.abs(allocated - usage.engagedSeconds) < 1e-9);
@@ -212,79 +231,93 @@ test('partitions elapsed time across planning, research, coding, and validation 
   assert.equal(usage.phases.validation.toolActiveSeconds, 10);
 });
 
+test('excludes delegation container tools whose nested subagent spans carry the evidence', () => {
+  const startMilliseconds = Date.parse('2026-08-04T16:00:00Z');
+  const nanos = (offsetSeconds: number) => String(BigInt(startMilliseconds + offsetSeconds * 1000) * 1_000_000n);
+  const tool = (id: string, toolName: string, start: number, end: number) => ({
+    traceId: 'trace-task', spanId: id, name: `execute_tool ${toolName}`,
+    startTimeUnixNano: nanos(start), endTimeUnixNano: nanos(end),
+    attributes: [attribute('gen_ai.operation.name', 'execute_tool'), attribute('gen_ai.tool.name', toolName)]
+  });
+  const records = [{ resourceSpans: [{
+    resource: stampedResource('session-task'),
+    scopeSpans: [{ spans: [tool('task', 'task', 0, 60), tool('nested-view', 'view', 10, 20), tool('wait', 'read_agent', 20, 50)] }]
+  }] }];
+
+  const usage = summarizeTraceRecords(records, new Date(startMilliseconds), new Date(startMilliseconds + 60_000), runtimePatterns);
+  assert.equal(usage.phases.research.toolCalls, 1);
+  assert.equal(usage.phases.unclassified.toolCalls, 0);
+  assert.equal(usage.activeSeconds, 10);
+  assert.equal(usage.phases.research.allocatedSeconds, 10);
+});
+
 test('excludes idle longer than the configured gap from allocated session time', () => {
   const startMilliseconds = Date.parse('2026-08-04T16:00:00Z');
   const nanos = (offsetSeconds: number) => String(BigInt(startMilliseconds + offsetSeconds * 1000) * 1_000_000n);
   const toolSpan = (id: string, start: number, end: number) => ({
     traceId: 'trace-idle',
     spanId: id,
-    name: 'execute_tool run_in_terminal',
+    name: 'execute_tool bash',
     startTimeUnixNano: nanos(start),
     endTimeUnixNano: nanos(end),
-    attributes: [attribute('gen_ai.tool.name', 'run_in_terminal')]
+    attributes: [attribute('gen_ai.operation.name', 'execute_tool'), attribute('gen_ai.tool.name', 'bash')]
   });
   const records = [{ resourceSpans: [{
-    resource: { attributes: [attribute('service.name', 'copilot-chat')] },
+    resource: stampedResource('session-idle'),
     scopeSpans: [{ spans: [toolSpan('early', 0, 60), toolSpan('late', 3_540, 3_600)] }]
   }] }];
-  const patterns = { planning: ['todo'], research: ['read'], coding: ['apply_patch'], validation: ['run_in_terminal'] };
   const window = [new Date('2026-08-04T16:00:00Z'), new Date('2026-08-04T17:00:00Z')] as const;
 
-  const bounded = summarizeTraceRecords(records, window[0], window[1], patterns, undefined, 300);
+  const bounded = summarizeTraceRecords(records, window[0], window[1], runtimePatterns, undefined, 300);
   assert.equal(bounded.elapsedSeconds, 3_600);
   assert.equal(bounded.engagedSeconds, 120);
   assert.equal(bounded.phases.validation.allocatedSeconds, 120);
 
-  const unbounded = summarizeTraceRecords(records, window[0], window[1], patterns, undefined, 7_200);
+  const unbounded = summarizeTraceRecords(records, window[0], window[1], runtimePatterns, undefined, 7_200);
   assert.equal(unbounded.engagedSeconds, 3_600);
   assert.equal(unbounded.phases.validation.allocatedSeconds, 3_600);
 });
 
-test('discovers resource session ids and filters usage to one Copilot session', () => {
+test('discovers stamped runtime sessions, ignores unstamped records, and filters usage to one session', () => {
   const startMilliseconds = Date.parse('2026-08-05T10:00:00Z');
   const nanos = (offsetSeconds: number) => String(BigInt(startMilliseconds + offsetSeconds * 1000) * 1_000_000n);
-  const record = (
-    sessionId: string,
-    conversationId: string,
-    id: string,
-    offsetSeconds: number,
-    credits: number
-  ) => ({
-    resourceSpans: [{
-      resource: { attributes: [attribute('service.name', 'copilot-chat'), attribute('session.id', sessionId)] },
-      scopeSpans: [{ spans: [{
-        traceId: `trace-${id}`,
-        spanId: id,
-        name: 'chat model',
-        startTimeUnixNano: nanos(offsetSeconds),
-        endTimeUnixNano: nanos(offsetSeconds + 1),
-        attributes: [
-          attribute('gen_ai.conversation.id', conversationId),
-          attribute('gen_ai.request.model', 'model'),
-          integerAttribute('gen_ai.usage.input_tokens', 100),
-          integerAttribute('copilot_chat.copilot_usage_nano_aiu', credits)
-        ]
-      }] }]
-    }]
+  const chat = (id: string, offsetSeconds: number, credits: number) => ({
+    traceId: `trace-${id}`,
+    spanId: id,
+    name: 'chat model',
+    startTimeUnixNano: nanos(offsetSeconds),
+    endTimeUnixNano: nanos(offsetSeconds + 1),
+    attributes: [
+      attribute('gen_ai.operation.name', 'chat'),
+      attribute('gen_ai.request.model', 'model'),
+      integerAttribute('gen_ai.usage.input_tokens', 100),
+      integerAttribute('github.copilot.nano_aiu', credits)
+    ]
   });
   const records = [
-    record('session-a', 'conversation-z', 'a', 1, 1_000_000_000),
-    record('session-a', 'conversation-a', 'a2', 2, 1_000_000_000),
-    record('session-b', 'conversation-b', 'b', 10, 2_000_000_000)
+    { resourceSpans: [{ resource: stampedResource('session-a', 'cli'), scopeSpans: [{ spans: [chat('a', 1, 1_000_000_000)] }] }] },
+    { resourceSpans: [{ resource: stampedResource('session-a', 'vscode'), scopeSpans: [{ spans: [chat('a2', 2, 1_000_000_000)] }] }] },
+    { resourceSpans: [{ resource: stampedResource('session-b', 'sdk', 'automated'), scopeSpans: [{ spans: [chat('b', 10, 2_000_000_000)] }] }] },
+    { resourceSpans: [{
+      resource: { attributes: [attribute('service.name', 'copilot-chat'), attribute('session.id', 'legacy')] },
+      scopeSpans: [{ spans: [chat('legacy', 20, 9_000_000_000)] }]
+    }] }
   ];
 
   const sessions = discoverTraceSessions(records);
   assert.deepEqual(sessions, [
     {
       sessionId: 'session-a',
-      chatSessionIds: ['conversation-a', 'conversation-z'],
+      surface: 'mixed',
+      mode: 'interactive',
       startedAt: '2026-08-05T10:00:01.000Z',
       endedAt: '2026-08-05T10:00:03.000Z',
       aiCostUsd: 0.02
     },
     {
       sessionId: 'session-b',
-      chatSessionIds: ['conversation-b'],
+      surface: 'sdk',
+      mode: 'automated',
       startedAt: '2026-08-05T10:00:10.000Z',
       endedAt: '2026-08-05T10:00:11.000Z',
       aiCostUsd: 0.02
@@ -295,7 +328,7 @@ test('discovers resource session ids and filters usage to one Copilot session', 
     records,
     new Date('2026-08-05T10:00:00Z'),
     new Date('2026-08-05T10:01:00Z'),
-    { planning: ['todo'], research: ['read'], coding: ['apply_patch'], validation: ['run_in_terminal'] },
+    runtimePatterns,
     'session-b'
   );
   assert.equal(usage.chatSpans, 1);
@@ -307,14 +340,14 @@ test('aggregates every session in one pass over trace records', () => {
   const nanos = (offsetSeconds: number) => String(BigInt(startedMilliseconds + offsetSeconds * 1000) * 1_000_000n);
   const records = ['session-a', 'session-b'].map((sessionId, index) => ({
     resourceSpans: [{
-      resource: { attributes: [attribute('service.name', 'copilot-chat'), attribute('session.id', sessionId)] },
+      resource: stampedResource(sessionId),
       scopeSpans: [{ spans: [{
         traceId: `trace-${index}`,
         spanId: `span-${index}`,
         name: 'chat model',
         startTimeUnixNano: nanos(index * 10),
         endTimeUnixNano: nanos(index * 10 + 1),
-        attributes: [integerAttribute('copilot_chat.copilot_usage_nano_aiu', 1_000_000_000)]
+        attributes: [attribute('gen_ai.operation.name', 'chat'), integerAttribute('github.copilot.nano_aiu', 1_000_000_000)]
       }] }]
     }]
   }));
@@ -327,10 +360,7 @@ test('aggregates every session in one pass over trace records', () => {
     }
   };
 
-  const evidence = aggregateTraceSessionEvidence(
-    singleUseRecords,
-    { planning: ['todo'], research: ['read'], coding: ['apply_patch'], validation: ['run_in_terminal'] }
-  );
+  const evidence = aggregateTraceSessionEvidence(singleUseRecords, runtimePatterns);
 
   assert.equal(iterations, 1);
   assert.deepEqual(evidence.map((entry) => entry.session.sessionId), ['session-a', 'session-b']);
@@ -342,34 +372,38 @@ test('persists accumulated session evidence and updates only changed sessions', 
   const nanos = (offsetSeconds: number) => String(BigInt(startedMilliseconds + offsetSeconds * 1000) * 1_000_000n);
   const record = (sessionId: string, spanId: string, offsetSeconds: number) => ({
     resourceSpans: [{
-      resource: { attributes: [attribute('service.name', 'copilot-chat'), attribute('session.id', sessionId)] },
+      resource: stampedResource(sessionId),
       scopeSpans: [{ spans: [{
         traceId: `trace-${spanId}`,
         spanId,
         name: 'chat model',
         startTimeUnixNano: nanos(offsetSeconds),
         endTimeUnixNano: nanos(offsetSeconds + 1),
-        attributes: [integerAttribute('copilot_chat.copilot_usage_nano_aiu', 1_000_000_000)]
+        attributes: [attribute('gen_ai.operation.name', 'chat'), integerAttribute('github.copilot.nano_aiu', 1_000_000_000)]
       }] }]
     }]
   });
-  const patterns = { planning: ['todo'], research: ['read'], coding: ['apply_patch'], validation: ['run_in_terminal'] };
   const accumulator = new TraceEvidenceAccumulator();
   assert.deepEqual(
     [...accumulator.consume([record('session-a', 'a-1', 0), record('session-b', 'b-1', 10)])].sort(),
     ['session-a', 'session-b']
   );
 
-  const resumed = new TraceEvidenceAccumulator(JSON.parse(JSON.stringify(accumulator.serialize())));
+  const serialized = JSON.parse(JSON.stringify(accumulator.serialize()));
+  assert.equal(serialized.version, 2);
+  const resumed = new TraceEvidenceAccumulator(serialized);
   assert.deepEqual(
     [...resumed.consume([record('session-a', 'a-1', 0), record('session-a', 'a-2', 20)])],
     ['session-a']
   );
-  const changed = resumed.evidence(patterns, new Set(['session-a']));
+  const changed = resumed.evidence(runtimePatterns, new Set(['session-a']));
   assert.equal(changed.length, 1);
   assert.equal(changed[0]?.session.sessionId, 'session-a');
   assert.equal(changed[0]?.usage.aiCredits, 2);
   assert.deepEqual(resumed.sessions().map((session) => session.sessionId), ['session-a', 'session-b']);
+
+  const legacy = new TraceEvidenceAccumulator({ ...serialized, version: 1 });
+  assert.deepEqual(legacy.sessions(), [], 'pre-runtime accumulated evidence is discarded');
 });
 
 test('reconstructs one session across active and rotated trace archives', async () => {
@@ -381,10 +415,7 @@ test('reconstructs one session across active and rotated trace archives', async 
     );
     const record = (spanId: string, offsetSeconds: number, credits: number) => ({
       resourceSpans: [{
-        resource: { attributes: [
-          attribute('service.name', 'copilot-chat'),
-          attribute('session.id', 'session-across-rotation')
-        ] },
+        resource: stampedResource('session-across-rotation'),
         scopeSpans: [{ spans: [{
           traceId: `trace-${spanId}`,
           spanId,
@@ -392,9 +423,9 @@ test('reconstructs one session across active and rotated trace archives', async 
           startTimeUnixNano: nanos(offsetSeconds),
           endTimeUnixNano: nanos(offsetSeconds + 1),
           attributes: [
-            attribute('gen_ai.conversation.id', 'conversation-across-rotation'),
+            attribute('gen_ai.operation.name', 'chat'),
             attribute('gen_ai.request.model', 'model'),
-            integerAttribute('copilot_chat.copilot_usage_nano_aiu', credits)
+            integerAttribute('github.copilot.nano_aiu', credits)
           ]
         }] }]
       }]
@@ -409,10 +440,7 @@ test('reconstructs one session across active and rotated trace archives', async 
       `${JSON.stringify(record('late', 60, 2_000_000_000))}\n`
     );
 
-    const evidence = await collectTraceSessionEvidence(
-      activePath,
-      { planning: ['todo'], research: ['read'], coding: ['apply_patch'], validation: ['run_in_terminal'] }
-    );
+    const evidence = await collectTraceSessionEvidence(activePath, runtimePatterns);
 
     assert.equal(evidence.length, 1);
     assert.equal(evidence[0]?.session.startedAt, '2026-08-05T10:00:00.000Z');

@@ -1,0 +1,2690 @@
+{
+ "description": "Sanitized Copilot runtime OTLP/JSON payloads modeled on CLI 1.0.105, VS Code Agent Host 1.0.95-0 and SDK 1.0.28 captures. Collector-scrubbed: no enduser.pseudo.id or content.",
+ "payloads": [
+  {
+   "resourceSpans": [
+    {
+     "resource": {
+      "attributes": [
+       {
+        "key": "service.name",
+        "value": {
+         "stringValue": "github-copilot"
+        }
+       },
+       {
+        "key": "service.version",
+        "value": {
+         "stringValue": "1.0.105"
+        }
+       },
+       {
+        "key": "service.instance.id",
+        "value": {
+         "stringValue": "copilot-otel-1000-0"
+        }
+       }
+      ]
+     },
+     "scopeSpans": [
+      {
+       "scope": {
+        "name": "github.copilot",
+        "version": "1.0.105"
+       },
+       "spans": [
+        {
+         "traceId": "11111111111111111111111111111111",
+         "spanId": "1000000000000002",
+         "name": "chat gpt-6.1-sol",
+         "kind": 3,
+         "startTimeUnixNano": "1793296800500000000",
+         "endTimeUnixNano": "1793296804300000000",
+         "attributes": [
+          {
+           "key": "gen_ai.operation.name",
+           "value": {
+            "stringValue": "chat"
+           }
+          },
+          {
+           "key": "gen_ai.provider.name",
+           "value": {
+            "stringValue": "github"
+           }
+          },
+          {
+           "key": "gen_ai.conversation.id",
+           "value": {
+            "stringValue": "cli-session-0001"
+           }
+          },
+          {
+           "key": "gen_ai.request.model",
+           "value": {
+            "stringValue": "gpt-6.1-sol"
+           }
+          },
+          {
+           "key": "gen_ai.response.model",
+           "value": {
+            "stringValue": "gpt-6.1-sol"
+           }
+          },
+          {
+           "key": "gen_ai.usage.input_tokens",
+           "value": {
+            "intValue": "19515"
+           }
+          },
+          {
+           "key": "gen_ai.usage.cache_read.input_tokens",
+           "value": {
+            "intValue": "0"
+           }
+          },
+          {
+           "key": "gen_ai.usage.cache_write.input_tokens",
+           "value": {
+            "intValue": "18000"
+           }
+          },
+          {
+           "key": "gen_ai.usage.output_tokens",
+           "value": {
+            "intValue": "19"
+           }
+          },
+          {
+           "key": "github.copilot.nano_aiu",
+           "value": {
+            "intValue": "4897600000"
+           }
+          },
+          {
+           "key": "github.copilot.cost",
+           "value": {
+            "doubleValue": 1.0
+           }
+          },
+          {
+           "key": "github.copilot.initiator",
+           "value": {
+            "stringValue": "user"
+           }
+          },
+          {
+           "key": "github.copilot.turn_id",
+           "value": {
+            "stringValue": "0"
+           }
+          },
+          {
+           "key": "github.copilot.interaction_id",
+           "value": {
+            "stringValue": "interaction-cli-1"
+           }
+          }
+         ],
+         "status": {},
+         "parentSpanId": "1000000000000001"
+        },
+        {
+         "traceId": "11111111111111111111111111111111",
+         "spanId": "1000000000000003",
+         "name": "execute_tool glob",
+         "kind": 1,
+         "startTimeUnixNano": "1793296804400000000",
+         "endTimeUnixNano": "1793296805100000000",
+         "attributes": [
+          {
+           "key": "gen_ai.operation.name",
+           "value": {
+            "stringValue": "execute_tool"
+           }
+          },
+          {
+           "key": "gen_ai.provider.name",
+           "value": {
+            "stringValue": "github"
+           }
+          },
+          {
+           "key": "gen_ai.tool.name",
+           "value": {
+            "stringValue": "glob"
+           }
+          },
+          {
+           "key": "gen_ai.tool.type",
+           "value": {
+            "stringValue": "function"
+           }
+          },
+          {
+           "key": "gen_ai.conversation.id",
+           "value": {
+            "stringValue": "cli-session-0001"
+           }
+          }
+         ],
+         "status": {},
+         "parentSpanId": "1000000000000001"
+        },
+        {
+         "traceId": "11111111111111111111111111111111",
+         "spanId": "1000000000000004",
+         "name": "chat gpt-6.1-sol",
+         "kind": 3,
+         "startTimeUnixNano": "1793296805200000000",
+         "endTimeUnixNano": "1793296809500000000",
+         "attributes": [
+          {
+           "key": "gen_ai.operation.name",
+           "value": {
+            "stringValue": "chat"
+           }
+          },
+          {
+           "key": "gen_ai.provider.name",
+           "value": {
+            "stringValue": "github"
+           }
+          },
+          {
+           "key": "gen_ai.conversation.id",
+           "value": {
+            "stringValue": "cli-session-0001"
+           }
+          },
+          {
+           "key": "gen_ai.request.model",
+           "value": {
+            "stringValue": "gpt-6.1-sol"
+           }
+          },
+          {
+           "key": "gen_ai.response.model",
+           "value": {
+            "stringValue": "gpt-6.1-sol"
+           }
+          },
+          {
+           "key": "gen_ai.usage.input_tokens",
+           "value": {
+            "intValue": "19512"
+           }
+          },
+          {
+           "key": "gen_ai.usage.cache_read.input_tokens",
+           "value": {
+            "intValue": "18000"
+           }
+          },
+          {
+           "key": "gen_ai.usage.cache_write.input_tokens",
+           "value": {
+            "intValue": "0"
+           }
+          },
+          {
+           "key": "gen_ai.usage.output_tokens",
+           "value": {
+            "intValue": "37"
+           }
+          },
+          {
+           "key": "github.copilot.nano_aiu",
+           "value": {
+            "doubleValue": 241970000.0
+           }
+          },
+          {
+           "key": "github.copilot.cost",
+           "value": {
+            "doubleValue": 1.0
+           }
+          },
+          {
+           "key": "github.copilot.initiator",
+           "value": {
+            "stringValue": "agent"
+           }
+          },
+          {
+           "key": "gen_ai.usage.reasoning.output_tokens",
+           "value": {
+            "stringValue": "12"
+           }
+          },
+          {
+           "key": "github.copilot.turn_id",
+           "value": {
+            "stringValue": "1"
+           }
+          },
+          {
+           "key": "github.copilot.interaction_id",
+           "value": {
+            "stringValue": "interaction-cli-1"
+           }
+          }
+         ],
+         "status": {},
+         "parentSpanId": "1000000000000001"
+        },
+        {
+         "traceId": "11111111111111111111111111111111",
+         "spanId": "1000000000000005",
+         "name": "execute_tool rg",
+         "kind": 1,
+         "startTimeUnixNano": "1793296809600000000",
+         "endTimeUnixNano": "1793296809800000000",
+         "attributes": [
+          {
+           "key": "gen_ai.operation.name",
+           "value": {
+            "stringValue": "execute_tool"
+           }
+          },
+          {
+           "key": "gen_ai.provider.name",
+           "value": {
+            "stringValue": "github"
+           }
+          },
+          {
+           "key": "gen_ai.tool.name",
+           "value": {
+            "stringValue": "rg"
+           }
+          },
+          {
+           "key": "gen_ai.tool.type",
+           "value": {
+            "stringValue": "function"
+           }
+          },
+          {
+           "key": "gen_ai.conversation.id",
+           "value": {
+            "stringValue": "cli-session-0001"
+           }
+          }
+         ],
+         "status": {},
+         "parentSpanId": "1000000000000001"
+        },
+        {
+         "traceId": "11111111111111111111111111111111",
+         "spanId": "1000000000000006",
+         "name": "chat gpt-6.1-sol",
+         "kind": 3,
+         "startTimeUnixNano": "1793296809900000000",
+         "endTimeUnixNano": "1793296813700000000",
+         "attributes": [
+          {
+           "key": "gen_ai.operation.name",
+           "value": {
+            "stringValue": "chat"
+           }
+          },
+          {
+           "key": "gen_ai.provider.name",
+           "value": {
+            "stringValue": "github"
+           }
+          },
+          {
+           "key": "gen_ai.conversation.id",
+           "value": {
+            "stringValue": "cli-session-0001"
+           }
+          },
+          {
+           "key": "gen_ai.request.model",
+           "value": {
+            "stringValue": "gpt-6.1-sol"
+           }
+          },
+          {
+           "key": "gen_ai.response.model",
+           "value": {
+            "stringValue": "gpt-6.1-sol"
+           }
+          },
+          {
+           "key": "gen_ai.usage.input_tokens",
+           "value": {
+            "intValue": "19549"
+           }
+          },
+          {
+           "key": "gen_ai.usage.cache_read.input_tokens",
+           "value": {
+            "intValue": "19000"
+           }
+          },
+          {
+           "key": "gen_ai.usage.cache_write.input_tokens",
+           "value": {
+            "intValue": "0"
+           }
+          },
+          {
+           "key": "gen_ai.usage.output_tokens",
+           "value": {
+            "intValue": "172"
+           }
+          },
+          {
+           "key": "github.copilot.nano_aiu",
+           "value": {
+            "intValue": "394090000"
+           }
+          },
+          {
+           "key": "github.copilot.cost",
+           "value": {
+            "doubleValue": 1.0
+           }
+          },
+          {
+           "key": "github.copilot.initiator",
+           "value": {
+            "stringValue": "agent"
+           }
+          },
+          {
+           "key": "github.copilot.turn_id",
+           "value": {
+            "stringValue": "2"
+           }
+          },
+          {
+           "key": "github.copilot.interaction_id",
+           "value": {
+            "stringValue": "interaction-cli-1"
+           }
+          }
+         ],
+         "status": {},
+         "parentSpanId": "1000000000000001"
+        },
+        {
+         "traceId": "11111111111111111111111111111111",
+         "spanId": "1000000000000007",
+         "name": "execute_tool view",
+         "kind": 1,
+         "startTimeUnixNano": "1793296813800000000",
+         "endTimeUnixNano": "1793296814300000000",
+         "attributes": [
+          {
+           "key": "gen_ai.operation.name",
+           "value": {
+            "stringValue": "execute_tool"
+           }
+          },
+          {
+           "key": "gen_ai.provider.name",
+           "value": {
+            "stringValue": "github"
+           }
+          },
+          {
+           "key": "gen_ai.tool.name",
+           "value": {
+            "stringValue": "view"
+           }
+          },
+          {
+           "key": "gen_ai.tool.type",
+           "value": {
+            "stringValue": "function"
+           }
+          },
+          {
+           "key": "gen_ai.conversation.id",
+           "value": {
+            "stringValue": "cli-session-0001"
+           }
+          }
+         ],
+         "status": {},
+         "parentSpanId": "1000000000000001"
+        },
+        {
+         "traceId": "11111111111111111111111111111111",
+         "spanId": "1000000000000008",
+         "name": "execute_tool powershell pwsh.exe",
+         "kind": 1,
+         "startTimeUnixNano": "1793296814400000000",
+         "endTimeUnixNano": "1793296816000000000",
+         "attributes": [
+          {
+           "key": "gen_ai.operation.name",
+           "value": {
+            "stringValue": "execute_tool"
+           }
+          },
+          {
+           "key": "gen_ai.provider.name",
+           "value": {
+            "stringValue": "github"
+           }
+          },
+          {
+           "key": "gen_ai.tool.name",
+           "value": {
+            "stringValue": "powershell"
+           }
+          },
+          {
+           "key": "gen_ai.tool.type",
+           "value": {
+            "stringValue": "function"
+           }
+          },
+          {
+           "key": "gen_ai.conversation.id",
+           "value": {
+            "stringValue": "cli-session-0001"
+           }
+          },
+          {
+           "key": "process.executable.name",
+           "value": {
+            "stringValue": "pwsh.exe"
+           }
+          },
+          {
+           "key": "process.exit.code",
+           "value": {
+            "intValue": "1"
+           }
+          }
+         ],
+         "status": {},
+         "parentSpanId": "1000000000000001"
+        }
+       ]
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "resourceSpans": [
+    {
+     "resource": {
+      "attributes": [
+       {
+        "key": "service.name",
+        "value": {
+         "stringValue": "github-copilot"
+        }
+       },
+       {
+        "key": "service.version",
+        "value": {
+         "stringValue": "1.0.105"
+        }
+       },
+       {
+        "key": "service.instance.id",
+        "value": {
+         "stringValue": "copilot-otel-1000-0"
+        }
+       }
+      ]
+     },
+     "scopeSpans": [
+      {
+       "scope": {
+        "name": "github.copilot",
+        "version": "1.0.105"
+       },
+       "spans": [
+        {
+         "traceId": "11111111111111111111111111111111",
+         "spanId": "1000000000000009",
+         "name": "chat gpt-6.1-sol",
+         "kind": 3,
+         "startTimeUnixNano": "1793296816100000000",
+         "endTimeUnixNano": "1793296820900000000",
+         "attributes": [
+          {
+           "key": "gen_ai.operation.name",
+           "value": {
+            "stringValue": "chat"
+           }
+          },
+          {
+           "key": "gen_ai.provider.name",
+           "value": {
+            "stringValue": "github"
+           }
+          },
+          {
+           "key": "gen_ai.conversation.id",
+           "value": {
+            "stringValue": "cli-session-0001"
+           }
+          },
+          {
+           "key": "gen_ai.request.model",
+           "value": {
+            "stringValue": "gpt-6.1-sol"
+           }
+          },
+          {
+           "key": "gen_ai.response.model",
+           "value": {
+            "stringValue": "gpt-6.1-sol"
+           }
+          },
+          {
+           "key": "gen_ai.usage.input_tokens",
+           "value": {
+            "intValue": "19653"
+           }
+          },
+          {
+           "key": "gen_ai.usage.cache_read.input_tokens",
+           "value": {
+            "intValue": "19500"
+           }
+          },
+          {
+           "key": "gen_ai.usage.cache_write.input_tokens",
+           "value": {
+            "intValue": "0"
+           }
+          },
+          {
+           "key": "gen_ai.usage.output_tokens",
+           "value": {
+            "intValue": "89"
+           }
+          },
+          {
+           "key": "github.copilot.nano_aiu",
+           "value": {
+            "intValue": "363380000"
+           }
+          },
+          {
+           "key": "github.copilot.cost",
+           "value": {
+            "doubleValue": 1.0
+           }
+          },
+          {
+           "key": "github.copilot.initiator",
+           "value": {
+            "stringValue": "agent"
+           }
+          },
+          {
+           "key": "github.copilot.turn_id",
+           "value": {
+            "stringValue": "3"
+           }
+          },
+          {
+           "key": "github.copilot.interaction_id",
+           "value": {
+            "stringValue": "interaction-cli-1"
+           }
+          }
+         ],
+         "status": {},
+         "parentSpanId": "1000000000000001"
+        },
+        {
+         "traceId": "11111111111111111111111111111111",
+         "spanId": "1000000000000010",
+         "name": "execute_tool apply_patch",
+         "kind": 1,
+         "startTimeUnixNano": "1793296821000000000",
+         "endTimeUnixNano": "1793296821200000000",
+         "attributes": [
+          {
+           "key": "gen_ai.operation.name",
+           "value": {
+            "stringValue": "execute_tool"
+           }
+          },
+          {
+           "key": "gen_ai.provider.name",
+           "value": {
+            "stringValue": "github"
+           }
+          },
+          {
+           "key": "gen_ai.tool.name",
+           "value": {
+            "stringValue": "apply_patch"
+           }
+          },
+          {
+           "key": "gen_ai.tool.type",
+           "value": {
+            "stringValue": "function"
+           }
+          },
+          {
+           "key": "gen_ai.conversation.id",
+           "value": {
+            "stringValue": "cli-session-0001"
+           }
+          }
+         ],
+         "status": {},
+         "parentSpanId": "1000000000000001"
+        },
+        {
+         "traceId": "11111111111111111111111111111111",
+         "spanId": "1000000000000011",
+         "name": "chat gpt-6.1-sol",
+         "kind": 3,
+         "startTimeUnixNano": "1793296821300000000",
+         "endTimeUnixNano": "1793296825600000000",
+         "attributes": [
+          {
+           "key": "gen_ai.operation.name",
+           "value": {
+            "stringValue": "chat"
+           }
+          },
+          {
+           "key": "gen_ai.provider.name",
+           "value": {
+            "stringValue": "github"
+           }
+          },
+          {
+           "key": "gen_ai.conversation.id",
+           "value": {
+            "stringValue": "cli-session-0001"
+           }
+          },
+          {
+           "key": "gen_ai.request.model",
+           "value": {
+            "stringValue": "gpt-6.1-sol"
+           }
+          },
+          {
+           "key": "gen_ai.response.model",
+           "value": {
+            "stringValue": "gpt-6.1-sol"
+           }
+          },
+          {
+           "key": "gen_ai.usage.input_tokens",
+           "value": {
+            "intValue": "19962"
+           }
+          },
+          {
+           "key": "gen_ai.usage.cache_read.input_tokens",
+           "value": {
+            "intValue": "19600"
+           }
+          },
+          {
+           "key": "gen_ai.usage.cache_write.input_tokens",
+           "value": {
+            "intValue": "0"
+           }
+          },
+          {
+           "key": "gen_ai.usage.output_tokens",
+           "value": {
+            "intValue": "28"
+           }
+          },
+          {
+           "key": "github.copilot.nano_aiu",
+           "value": {
+            "intValue": "266970000"
+           }
+          },
+          {
+           "key": "github.copilot.cost",
+           "value": {
+            "doubleValue": 1.0
+           }
+          },
+          {
+           "key": "github.copilot.initiator",
+           "value": {
+            "stringValue": "agent"
+           }
+          },
+          {
+           "key": "github.copilot.turn_id",
+           "value": {
+            "stringValue": "4"
+           }
+          },
+          {
+           "key": "github.copilot.interaction_id",
+           "value": {
+            "stringValue": "interaction-cli-1"
+           }
+          }
+         ],
+         "status": {},
+         "parentSpanId": "1000000000000001"
+        },
+        {
+         "traceId": "11111111111111111111111111111111",
+         "spanId": "1000000000000012",
+         "name": "execute_tool powershell pwsh.exe",
+         "kind": 1,
+         "startTimeUnixNano": "1793296825700000000",
+         "endTimeUnixNano": "1793296827900000000",
+         "attributes": [
+          {
+           "key": "gen_ai.operation.name",
+           "value": {
+            "stringValue": "execute_tool"
+           }
+          },
+          {
+           "key": "gen_ai.provider.name",
+           "value": {
+            "stringValue": "github"
+           }
+          },
+          {
+           "key": "gen_ai.tool.name",
+           "value": {
+            "stringValue": "powershell"
+           }
+          },
+          {
+           "key": "gen_ai.tool.type",
+           "value": {
+            "stringValue": "function"
+           }
+          },
+          {
+           "key": "gen_ai.conversation.id",
+           "value": {
+            "stringValue": "cli-session-0001"
+           }
+          },
+          {
+           "key": "process.executable.name",
+           "value": {
+            "stringValue": "pwsh.exe"
+           }
+          },
+          {
+           "key": "process.exit.code",
+           "value": {
+            "intValue": "0"
+           }
+          }
+         ],
+         "status": {},
+         "parentSpanId": "1000000000000001"
+        },
+        {
+         "traceId": "11111111111111111111111111111111",
+         "spanId": "1000000000000013",
+         "name": "chat gpt-6.1-sol",
+         "kind": 3,
+         "startTimeUnixNano": "1793296828000000000",
+         "endTimeUnixNano": "1793296832200000000",
+         "attributes": [
+          {
+           "key": "gen_ai.operation.name",
+           "value": {
+            "stringValue": "chat"
+           }
+          },
+          {
+           "key": "gen_ai.provider.name",
+           "value": {
+            "stringValue": "github"
+           }
+          },
+          {
+           "key": "gen_ai.conversation.id",
+           "value": {
+            "stringValue": "cli-session-0001"
+           }
+          },
+          {
+           "key": "gen_ai.request.model",
+           "value": {
+            "stringValue": "gpt-6.1-sol"
+           }
+          },
+          {
+           "key": "gen_ai.response.model",
+           "value": {
+            "stringValue": "gpt-6.1-sol"
+           }
+          },
+          {
+           "key": "gen_ai.usage.input_tokens",
+           "value": {
+            "intValue": "20117"
+           }
+          },
+          {
+           "key": "gen_ai.usage.cache_read.input_tokens",
+           "value": {
+            "intValue": "19900"
+           }
+          },
+          {
+           "key": "gen_ai.usage.cache_write.input_tokens",
+           "value": {
+            "intValue": "0"
+           }
+          },
+          {
+           "key": "gen_ai.usage.output_tokens",
+           "value": {
+            "intValue": "123"
+           }
+          },
+          {
+           "key": "github.copilot.nano_aiu",
+           "value": {
+            "intValue": "367270000"
+           }
+          },
+          {
+           "key": "github.copilot.cost",
+           "value": {
+            "doubleValue": 1.0
+           }
+          },
+          {
+           "key": "github.copilot.initiator",
+           "value": {
+            "stringValue": "agent"
+           }
+          },
+          {
+           "key": "github.copilot.turn_id",
+           "value": {
+            "stringValue": "5"
+           }
+          },
+          {
+           "key": "github.copilot.interaction_id",
+           "value": {
+            "stringValue": "interaction-cli-1"
+           }
+          }
+         ],
+         "status": {},
+         "parentSpanId": "1000000000000001"
+        },
+        {
+         "traceId": "11111111111111111111111111111111",
+         "spanId": "1000000000000020",
+         "name": "execute_tool task",
+         "kind": 1,
+         "startTimeUnixNano": "1793296832300000000",
+         "endTimeUnixNano": "1793296846600000000",
+         "attributes": [
+          {
+           "key": "gen_ai.operation.name",
+           "value": {
+            "stringValue": "execute_tool"
+           }
+          },
+          {
+           "key": "gen_ai.provider.name",
+           "value": {
+            "stringValue": "github"
+           }
+          },
+          {
+           "key": "gen_ai.tool.name",
+           "value": {
+            "stringValue": "task"
+           }
+          },
+          {
+           "key": "gen_ai.tool.type",
+           "value": {
+            "stringValue": "function"
+           }
+          },
+          {
+           "key": "gen_ai.conversation.id",
+           "value": {
+            "stringValue": "cli-session-0001"
+           }
+          }
+         ],
+         "status": {},
+         "parentSpanId": "1000000000000001"
+        },
+        {
+         "traceId": "11111111111111111111111111111111",
+         "spanId": "1000000000000021",
+         "name": "invoke_agent explore",
+         "kind": 1,
+         "startTimeUnixNano": "1793296832400000000",
+         "endTimeUnixNano": "1793296846400000000",
+         "attributes": [
+          {
+           "key": "gen_ai.operation.name",
+           "value": {
+            "stringValue": "invoke_agent"
+           }
+          },
+          {
+           "key": "gen_ai.provider.name",
+           "value": {
+            "stringValue": "github"
+           }
+          },
+          {
+           "key": "gen_ai.conversation.id",
+           "value": {
+            "stringValue": "cli-session-0001"
+           }
+          },
+          {
+           "key": "gen_ai.usage.input_tokens",
+           "value": {
+            "intValue": "13163"
+           }
+          },
+          {
+           "key": "gen_ai.usage.output_tokens",
+           "value": {
+            "intValue": "53"
+           }
+          },
+          {
+           "key": "github.copilot.nano_aiu",
+           "value": {
+            "doubleValue": 218716000.0
+           }
+          },
+          {
+           "key": "github.copilot.cost",
+           "value": {
+            "doubleValue": 1.0
+           }
+          },
+          {
+           "key": "github.copilot.agent.type",
+           "value": {
+            "stringValue": "builtin"
+           }
+          },
+          {
+           "key": "gen_ai.agent.name",
+           "value": {
+            "stringValue": "explore"
+           }
+          }
+         ],
+         "status": {},
+         "parentSpanId": "1000000000000020"
+        },
+        {
+         "traceId": "11111111111111111111111111111111",
+         "spanId": "1000000000000022",
+         "name": "chat gpt-5.6-luna",
+         "kind": 3,
+         "startTimeUnixNano": "1793296832500000000",
+         "endTimeUnixNano": "1793296835400000000",
+         "attributes": [
+          {
+           "key": "gen_ai.operation.name",
+           "value": {
+            "stringValue": "chat"
+           }
+          },
+          {
+           "key": "gen_ai.provider.name",
+           "value": {
+            "stringValue": "github"
+           }
+          },
+          {
+           "key": "gen_ai.conversation.id",
+           "value": {
+            "stringValue": "cli-session-0001"
+           }
+          },
+          {
+           "key": "gen_ai.request.model",
+           "value": {
+            "stringValue": "gpt-5.6-luna"
+           }
+          },
+          {
+           "key": "gen_ai.response.model",
+           "value": {
+            "stringValue": "gpt-5.6-luna"
+           }
+          },
+          {
+           "key": "gen_ai.usage.input_tokens",
+           "value": {
+            "intValue": "6586"
+           }
+          },
+          {
+           "key": "gen_ai.usage.cache_read.input_tokens",
+           "value": {
+            "intValue": "0"
+           }
+          },
+          {
+           "key": "gen_ai.usage.cache_write.input_tokens",
+           "value": {
+            "intValue": "0"
+           }
+          },
+          {
+           "key": "gen_ai.usage.output_tokens",
+           "value": {
+            "intValue": "12"
+           }
+          },
+          {
+           "key": "github.copilot.nano_aiu",
+           "value": {
+            "intValue": "190795000"
+           }
+          },
+          {
+           "key": "github.copilot.cost",
+           "value": {
+            "doubleValue": 1.0
+           }
+          },
+          {
+           "key": "github.copilot.initiator",
+           "value": {
+            "stringValue": "sub-agent"
+           }
+          }
+         ],
+         "status": {},
+         "parentSpanId": "1000000000000021"
+        },
+        {
+         "traceId": "11111111111111111111111111111111",
+         "spanId": "1000000000000023",
+         "name": "execute_tool view",
+         "kind": 1,
+         "startTimeUnixNano": "1793296835500000000",
+         "endTimeUnixNano": "1793296841200000000",
+         "attributes": [
+          {
+           "key": "gen_ai.operation.name",
+           "value": {
+            "stringValue": "execute_tool"
+           }
+          },
+          {
+           "key": "gen_ai.provider.name",
+           "value": {
+            "stringValue": "github"
+           }
+          },
+          {
+           "key": "gen_ai.tool.name",
+           "value": {
+            "stringValue": "view"
+           }
+          },
+          {
+           "key": "gen_ai.tool.type",
+           "value": {
+            "stringValue": "function"
+           }
+          },
+          {
+           "key": "gen_ai.conversation.id",
+           "value": {
+            "stringValue": "cli-session-0001"
+           }
+          },
+          {
+           "key": "gen_ai.agent.name",
+           "value": {
+            "stringValue": "explore"
+           }
+          }
+         ],
+         "status": {},
+         "parentSpanId": "1000000000000021"
+        },
+        {
+         "traceId": "11111111111111111111111111111111",
+         "spanId": "1000000000000024",
+         "name": "chat gpt-5.6-luna",
+         "kind": 3,
+         "startTimeUnixNano": "1793296841300000000",
+         "endTimeUnixNano": "1793296842800000000",
+         "attributes": [
+          {
+           "key": "gen_ai.operation.name",
+           "value": {
+            "stringValue": "chat"
+           }
+          },
+          {
+           "key": "gen_ai.provider.name",
+           "value": {
+            "stringValue": "github"
+           }
+          },
+          {
+           "key": "gen_ai.conversation.id",
+           "value": {
+            "stringValue": "cli-session-0001"
+           }
+          },
+          {
+           "key": "gen_ai.request.model",
+           "value": {
+            "stringValue": "gpt-5.6-luna"
+           }
+          },
+          {
+           "key": "gen_ai.response.model",
+           "value": {
+            "stringValue": "gpt-5.6-luna"
+           }
+          },
+          {
+           "key": "gen_ai.usage.input_tokens",
+           "value": {
+            "intValue": "6583"
+           }
+          },
+          {
+           "key": "gen_ai.usage.cache_read.input_tokens",
+           "value": {
+            "intValue": "6400"
+           }
+          },
+          {
+           "key": "gen_ai.usage.cache_write.input_tokens",
+           "value": {
+            "intValue": "0"
+           }
+          },
+          {
+           "key": "gen_ai.usage.output_tokens",
+           "value": {
+            "intValue": "41"
+           }
+          },
+          {
+           "key": "github.copilot.nano_aiu",
+           "value": {
+            "intValue": "27921000"
+           }
+          },
+          {
+           "key": "github.copilot.cost",
+           "value": {
+            "doubleValue": 1.0
+           }
+          },
+          {
+           "key": "github.copilot.initiator",
+           "value": {
+            "stringValue": "sub-agent"
+           }
+          }
+         ],
+         "status": {},
+         "parentSpanId": "1000000000000021"
+        },
+        {
+         "traceId": "11111111111111111111111111111111",
+         "spanId": "1000000000000025",
+         "name": "chat gpt-6.1-sol",
+         "kind": 3,
+         "startTimeUnixNano": "1793296846700000000",
+         "endTimeUnixNano": "1793296850700000000",
+         "attributes": [
+          {
+           "key": "gen_ai.operation.name",
+           "value": {
+            "stringValue": "chat"
+           }
+          },
+          {
+           "key": "gen_ai.provider.name",
+           "value": {
+            "stringValue": "github"
+           }
+          },
+          {
+           "key": "gen_ai.conversation.id",
+           "value": {
+            "stringValue": "cli-session-0001"
+           }
+          },
+          {
+           "key": "gen_ai.request.model",
+           "value": {
+            "stringValue": "gpt-6.1-sol"
+           }
+          },
+          {
+           "key": "gen_ai.response.model",
+           "value": {
+            "stringValue": "gpt-6.1-sol"
+           }
+          },
+          {
+           "key": "gen_ai.usage.input_tokens",
+           "value": {
+            "intValue": "20287"
+           }
+          },
+          {
+           "key": "gen_ai.usage.cache_read.input_tokens",
+           "value": {
+            "intValue": "20100"
+           }
+          },
+          {
+           "key": "gen_ai.usage.cache_write.input_tokens",
+           "value": {
+            "intValue": "0"
+           }
+          },
+          {
+           "key": "gen_ai.usage.output_tokens",
+           "value": {
+            "intValue": "51"
+           }
+          },
+          {
+           "key": "github.copilot.nano_aiu",
+           "value": {
+            "intValue": "296970000"
+           }
+          },
+          {
+           "key": "github.copilot.cost",
+           "value": {
+            "doubleValue": 1.0
+           }
+          },
+          {
+           "key": "github.copilot.initiator",
+           "value": {
+            "stringValue": "agent"
+           }
+          },
+          {
+           "key": "github.copilot.turn_id",
+           "value": {
+            "stringValue": "6"
+           }
+          },
+          {
+           "key": "github.copilot.interaction_id",
+           "value": {
+            "stringValue": "interaction-cli-1"
+           }
+          }
+         ],
+         "status": {},
+         "parentSpanId": "1000000000000001"
+        }
+       ]
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "resourceSpans": [
+    {
+     "resource": {
+      "attributes": [
+       {
+        "key": "service.name",
+        "value": {
+         "stringValue": "github-copilot"
+        }
+       },
+       {
+        "key": "service.version",
+        "value": {
+         "stringValue": "1.0.105"
+        }
+       },
+       {
+        "key": "service.instance.id",
+        "value": {
+         "stringValue": "copilot-otel-1000-0"
+        }
+       }
+      ]
+     },
+     "scopeSpans": [
+      {
+       "scope": {
+        "name": "github.copilot",
+        "version": "1.0.105"
+       },
+       "spans": [
+        {
+         "traceId": "11111111111111111111111111111111",
+         "spanId": "1000000000000001",
+         "name": "invoke_agent",
+         "kind": 1,
+         "startTimeUnixNano": "1793296800000000000",
+         "endTimeUnixNano": "1793296851000000000",
+         "attributes": [
+          {
+           "key": "gen_ai.operation.name",
+           "value": {
+            "stringValue": "invoke_agent"
+           }
+          },
+          {
+           "key": "gen_ai.provider.name",
+           "value": {
+            "stringValue": "github"
+           }
+          },
+          {
+           "key": "gen_ai.conversation.id",
+           "value": {
+            "stringValue": "cli-session-0001"
+           }
+          },
+          {
+           "key": "gen_ai.usage.input_tokens",
+           "value": {
+            "intValue": "139558"
+           }
+          },
+          {
+           "key": "gen_ai.usage.output_tokens",
+           "value": {
+            "intValue": "519"
+           }
+          },
+          {
+           "key": "github.copilot.nano_aiu",
+           "value": {
+            "doubleValue": 6828250000.0
+           }
+          },
+          {
+           "key": "github.copilot.cost",
+           "value": {
+            "doubleValue": 1.0
+           }
+          },
+          {
+           "key": "github.copilot.agent.type",
+           "value": {
+            "stringValue": "builtin"
+           }
+          }
+         ],
+         "status": {},
+         "events": [
+          {
+           "timeUnixNano": "1793296800000000000",
+           "name": "github.copilot.user.message",
+           "attributes": [
+            {
+             "key": "github.copilot.user.message.interaction_id",
+             "value": {
+              "stringValue": "interaction-cli-1"
+             }
+            },
+            {
+             "key": "github.copilot.user.message.source",
+             "value": {
+              "stringValue": "user"
+             }
+            },
+            {
+             "key": "github.copilot.user.message.turn_id",
+             "value": {
+              "stringValue": "0"
+             }
+            }
+           ]
+          }
+         ]
+        }
+       ]
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "resourceSpans": [
+    {
+     "resource": {
+      "attributes": [
+       {
+        "key": "service.name",
+        "value": {
+         "stringValue": "github-copilot"
+        }
+       },
+       {
+        "key": "service.version",
+        "value": {
+         "stringValue": "1.0.105"
+        }
+       },
+       {
+        "key": "service.instance.id",
+        "value": {
+         "stringValue": "copilot-otel-1001-0"
+        }
+       }
+      ]
+     },
+     "scopeSpans": [
+      {
+       "scope": {
+        "name": "github.copilot",
+        "version": "1.0.105"
+       },
+       "spans": [
+        {
+         "traceId": "22222222222222222222222222222222",
+         "spanId": "2000000000000002",
+         "name": "chat gpt-5.6-luna",
+         "kind": 3,
+         "startTimeUnixNano": "1793297400500000000",
+         "endTimeUnixNano": "1793297404500000000",
+         "attributes": [
+          {
+           "key": "gen_ai.operation.name",
+           "value": {
+            "stringValue": "chat"
+           }
+          },
+          {
+           "key": "gen_ai.provider.name",
+           "value": {
+            "stringValue": "github"
+           }
+          },
+          {
+           "key": "gen_ai.conversation.id",
+           "value": {
+            "stringValue": "cli-session-0001"
+           }
+          },
+          {
+           "key": "gen_ai.request.model",
+           "value": {
+            "stringValue": "gpt-5.6-luna"
+           }
+          },
+          {
+           "key": "gen_ai.response.model",
+           "value": {
+            "stringValue": "gpt-5.6-luna"
+           }
+          },
+          {
+           "key": "gen_ai.usage.input_tokens",
+           "value": {
+            "intValue": "20600"
+           }
+          },
+          {
+           "key": "gen_ai.usage.cache_read.input_tokens",
+           "value": {
+            "intValue": "0"
+           }
+          },
+          {
+           "key": "gen_ai.usage.cache_write.input_tokens",
+           "value": {
+            "intValue": "0"
+           }
+          },
+          {
+           "key": "gen_ai.usage.output_tokens",
+           "value": {
+            "intValue": "28"
+           }
+          },
+          {
+           "key": "github.copilot.nano_aiu",
+           "value": {
+            "intValue": "516845000"
+           }
+          },
+          {
+           "key": "github.copilot.cost",
+           "value": {
+            "doubleValue": 1.0
+           }
+          },
+          {
+           "key": "github.copilot.initiator",
+           "value": {
+            "stringValue": "user"
+           }
+          },
+          {
+           "key": "github.copilot.turn_id",
+           "value": {
+            "stringValue": "0"
+           }
+          },
+          {
+           "key": "github.copilot.interaction_id",
+           "value": {
+            "stringValue": "interaction-cli-2"
+           }
+          }
+         ],
+         "status": {},
+         "parentSpanId": "2000000000000001"
+        },
+        {
+         "traceId": "22222222222222222222222222222222",
+         "spanId": "2000000000000001",
+         "name": "invoke_agent",
+         "kind": 1,
+         "startTimeUnixNano": "1793297400000000000",
+         "endTimeUnixNano": "1793297405000000000",
+         "attributes": [
+          {
+           "key": "gen_ai.operation.name",
+           "value": {
+            "stringValue": "invoke_agent"
+           }
+          },
+          {
+           "key": "gen_ai.provider.name",
+           "value": {
+            "stringValue": "github"
+           }
+          },
+          {
+           "key": "gen_ai.conversation.id",
+           "value": {
+            "stringValue": "cli-session-0001"
+           }
+          },
+          {
+           "key": "gen_ai.usage.input_tokens",
+           "value": {
+            "intValue": "20600"
+           }
+          },
+          {
+           "key": "gen_ai.usage.output_tokens",
+           "value": {
+            "intValue": "28"
+           }
+          },
+          {
+           "key": "github.copilot.nano_aiu",
+           "value": {
+            "intValue": "516845000"
+           }
+          },
+          {
+           "key": "github.copilot.cost",
+           "value": {
+            "doubleValue": 1.0
+           }
+          },
+          {
+           "key": "github.copilot.agent.type",
+           "value": {
+            "stringValue": "builtin"
+           }
+          }
+         ],
+         "status": {},
+         "events": [
+          {
+           "timeUnixNano": "1793297400000000000",
+           "name": "github.copilot.user.message",
+           "attributes": [
+            {
+             "key": "github.copilot.user.message.interaction_id",
+             "value": {
+              "stringValue": "interaction-cli-2"
+             }
+            },
+            {
+             "key": "github.copilot.user.message.source",
+             "value": {
+              "stringValue": "user"
+             }
+            },
+            {
+             "key": "github.copilot.user.message.turn_id",
+             "value": {
+              "stringValue": "0"
+             }
+            }
+           ]
+          }
+         ]
+        }
+       ]
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "resourceSpans": [
+    {
+     "resource": {
+      "attributes": [
+       {
+        "key": "service.name",
+        "value": {
+         "stringValue": "github-copilot"
+        }
+       },
+       {
+        "key": "service.namespace",
+        "value": {
+         "stringValue": "vscode.agent-host"
+        }
+       },
+       {
+        "key": "service.version",
+        "value": {
+         "stringValue": "1.0.95-0"
+        }
+       },
+       {
+        "key": "service.instance.id",
+        "value": {
+         "stringValue": "copilot-otel-2000-1"
+        }
+       }
+      ]
+     },
+     "scopeSpans": [
+      {
+       "scope": {
+        "name": "github.copilot",
+        "version": "1.0.105"
+       },
+       "spans": [
+        {
+         "traceId": "33333333333333333333333333333333",
+         "spanId": "3000000000000002",
+         "name": "chat claude-sonnet-5.5",
+         "kind": 3,
+         "startTimeUnixNano": "1793296900200000000",
+         "endTimeUnixNano": "1793296904000000000",
+         "attributes": [
+          {
+           "key": "gen_ai.operation.name",
+           "value": {
+            "stringValue": "chat"
+           }
+          },
+          {
+           "key": "gen_ai.provider.name",
+           "value": {
+            "stringValue": "github"
+           }
+          },
+          {
+           "key": "gen_ai.conversation.id",
+           "value": {
+            "stringValue": "vscode-session-0001"
+           }
+          },
+          {
+           "key": "gen_ai.request.model",
+           "value": {
+            "stringValue": "claude-sonnet-5.5"
+           }
+          },
+          {
+           "key": "gen_ai.response.model",
+           "value": {
+            "stringValue": "claude-sonnet-5.5"
+           }
+          },
+          {
+           "key": "gen_ai.usage.input_tokens",
+           "value": {
+            "intValue": "12000"
+           }
+          },
+          {
+           "key": "gen_ai.usage.cache_read.input_tokens",
+           "value": {
+            "intValue": "8000"
+           }
+          },
+          {
+           "key": "gen_ai.usage.cache_write.input_tokens",
+           "value": {
+            "intValue": "0"
+           }
+          },
+          {
+           "key": "gen_ai.usage.output_tokens",
+           "value": {
+            "intValue": "300"
+           }
+          },
+          {
+           "key": "github.copilot.nano_aiu",
+           "value": {
+            "intValue": "400000000"
+           }
+          },
+          {
+           "key": "github.copilot.cost",
+           "value": {
+            "doubleValue": 1.0
+           }
+          },
+          {
+           "key": "github.copilot.initiator",
+           "value": {
+            "stringValue": "user"
+           }
+          },
+          {
+           "key": "gen_ai.usage.reasoning.output_tokens",
+           "value": {
+            "stringValue": "40"
+           }
+          },
+          {
+           "key": "github.copilot.turn_id",
+           "value": {
+            "stringValue": "0"
+           }
+          },
+          {
+           "key": "github.copilot.interaction_id",
+           "value": {
+            "stringValue": "interaction-vscode-1"
+           }
+          }
+         ],
+         "status": {},
+         "parentSpanId": "3000000000000001"
+        },
+        {
+         "traceId": "33333333333333333333333333333333",
+         "spanId": "3000000000000003",
+         "name": "execute_tool edit",
+         "kind": 1,
+         "startTimeUnixNano": "1793296904100000000",
+         "endTimeUnixNano": "1793296904600000000",
+         "attributes": [
+          {
+           "key": "gen_ai.operation.name",
+           "value": {
+            "stringValue": "execute_tool"
+           }
+          },
+          {
+           "key": "gen_ai.provider.name",
+           "value": {
+            "stringValue": "github"
+           }
+          },
+          {
+           "key": "gen_ai.tool.name",
+           "value": {
+            "stringValue": "edit"
+           }
+          },
+          {
+           "key": "gen_ai.tool.type",
+           "value": {
+            "stringValue": "function"
+           }
+          }
+         ],
+         "status": {},
+         "parentSpanId": "3000000000000001"
+        },
+        {
+         "traceId": "33333333333333333333333333333333",
+         "spanId": "3000000000000004",
+         "name": "execute_tool view",
+         "kind": 1,
+         "startTimeUnixNano": "1793296904700000000",
+         "endTimeUnixNano": "1793296904900000000",
+         "attributes": [
+          {
+           "key": "gen_ai.operation.name",
+           "value": {
+            "stringValue": "execute_tool"
+           }
+          },
+          {
+           "key": "gen_ai.provider.name",
+           "value": {
+            "stringValue": "github"
+           }
+          },
+          {
+           "key": "gen_ai.tool.name",
+           "value": {
+            "stringValue": "view"
+           }
+          },
+          {
+           "key": "gen_ai.tool.type",
+           "value": {
+            "stringValue": "function"
+           }
+          },
+          {
+           "key": "gen_ai.conversation.id",
+           "value": {
+            "stringValue": "vscode-session-0001"
+           }
+          }
+         ],
+         "status": {},
+         "parentSpanId": "3000000000000001"
+        },
+        {
+         "traceId": "33333333333333333333333333333333",
+         "spanId": "3000000000000005",
+         "name": "chat claude-sonnet-5.5",
+         "kind": 3,
+         "startTimeUnixNano": "1793296905000000000",
+         "endTimeUnixNano": "1793296908000000000",
+         "attributes": [
+          {
+           "key": "gen_ai.operation.name",
+           "value": {
+            "stringValue": "chat"
+           }
+          },
+          {
+           "key": "gen_ai.provider.name",
+           "value": {
+            "stringValue": "github"
+           }
+          },
+          {
+           "key": "gen_ai.conversation.id",
+           "value": {
+            "stringValue": "vscode-session-0001"
+           }
+          },
+          {
+           "key": "gen_ai.request.model",
+           "value": {
+            "stringValue": "claude-sonnet-5.5"
+           }
+          },
+          {
+           "key": "gen_ai.response.model",
+           "value": {
+            "stringValue": "claude-sonnet-5.5"
+           }
+          },
+          {
+           "key": "gen_ai.usage.input_tokens",
+           "value": {
+            "intValue": "12500"
+           }
+          },
+          {
+           "key": "gen_ai.usage.cache_read.input_tokens",
+           "value": {
+            "intValue": "11000"
+           }
+          },
+          {
+           "key": "gen_ai.usage.cache_write.input_tokens",
+           "value": {
+            "intValue": "0"
+           }
+          },
+          {
+           "key": "gen_ai.usage.output_tokens",
+           "value": {
+            "intValue": "80"
+           }
+          },
+          {
+           "key": "github.copilot.nano_aiu",
+           "value": {
+            "intValue": "200000000"
+           }
+          },
+          {
+           "key": "github.copilot.cost",
+           "value": {
+            "doubleValue": 1.0
+           }
+          },
+          {
+           "key": "github.copilot.initiator",
+           "value": {
+            "stringValue": "agent"
+           }
+          },
+          {
+           "key": "github.copilot.turn_id",
+           "value": {
+            "stringValue": "1"
+           }
+          },
+          {
+           "key": "github.copilot.interaction_id",
+           "value": {
+            "stringValue": "interaction-vscode-1"
+           }
+          }
+         ],
+         "status": {},
+         "parentSpanId": "3000000000000001"
+        },
+        {
+         "traceId": "33333333333333333333333333333333",
+         "spanId": "3000000000000001",
+         "name": "invoke_agent",
+         "kind": 1,
+         "startTimeUnixNano": "1793296900000000000",
+         "endTimeUnixNano": "1793296908200000000",
+         "attributes": [
+          {
+           "key": "gen_ai.operation.name",
+           "value": {
+            "stringValue": "invoke_agent"
+           }
+          },
+          {
+           "key": "gen_ai.provider.name",
+           "value": {
+            "stringValue": "github"
+           }
+          },
+          {
+           "key": "gen_ai.conversation.id",
+           "value": {
+            "stringValue": "vscode-session-0001"
+           }
+          },
+          {
+           "key": "gen_ai.usage.input_tokens",
+           "value": {
+            "intValue": "24500"
+           }
+          },
+          {
+           "key": "gen_ai.usage.output_tokens",
+           "value": {
+            "intValue": "380"
+           }
+          },
+          {
+           "key": "github.copilot.nano_aiu",
+           "value": {
+            "intValue": "600000000"
+           }
+          },
+          {
+           "key": "github.copilot.cost",
+           "value": {
+            "doubleValue": 1.0
+           }
+          },
+          {
+           "key": "github.copilot.agent.type",
+           "value": {
+            "stringValue": "builtin"
+           }
+          }
+         ],
+         "status": {},
+         "events": [
+          {
+           "timeUnixNano": "1793296900000000000",
+           "name": "github.copilot.user.message",
+           "attributes": [
+            {
+             "key": "github.copilot.user.message.interaction_id",
+             "value": {
+              "stringValue": "interaction-vscode-1"
+             }
+            },
+            {
+             "key": "github.copilot.user.message.source",
+             "value": {
+              "stringValue": "user"
+             }
+            },
+            {
+             "key": "github.copilot.user.message.turn_id",
+             "value": {
+              "stringValue": "0"
+             }
+            }
+           ]
+          }
+         ]
+        }
+       ]
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "resourceSpans": [
+    {
+     "resource": {
+      "attributes": [
+       {
+        "key": "service.name",
+        "value": {
+         "stringValue": "github-copilot"
+        }
+       },
+       {
+        "key": "service.version",
+        "value": {
+         "stringValue": "1.0.105"
+        }
+       },
+       {
+        "key": "service.instance.id",
+        "value": {
+         "stringValue": "copilot-otel-3000-0"
+        }
+       },
+       {
+        "key": "algalon.session.mode",
+        "value": {
+         "stringValue": "automated"
+        }
+       },
+       {
+        "key": "algalon.surface",
+        "value": {
+         "stringValue": "sdk"
+        }
+       }
+      ]
+     },
+     "scopeSpans": [
+      {
+       "scope": {
+        "name": "spike.sdk.scope",
+        "version": "1.0.105"
+       },
+       "spans": [
+        {
+         "traceId": "44444444444444444444444444444444",
+         "spanId": "4000000000000009",
+         "name": "session.timing.model_resolution",
+         "kind": 1,
+         "startTimeUnixNano": "1793296999000000000",
+         "endTimeUnixNano": "1793296999400000000",
+         "attributes": [],
+         "status": {}
+        },
+        {
+         "traceId": "44444444444444444444444444444444",
+         "spanId": "4000000000000002",
+         "name": "chat gpt-5.6-luna",
+         "kind": 3,
+         "startTimeUnixNano": "1793297000500000000",
+         "endTimeUnixNano": "1793297003000000000",
+         "attributes": [
+          {
+           "key": "gen_ai.operation.name",
+           "value": {
+            "stringValue": "chat"
+           }
+          },
+          {
+           "key": "gen_ai.provider.name",
+           "value": {
+            "stringValue": "github"
+           }
+          },
+          {
+           "key": "gen_ai.conversation.id",
+           "value": {
+            "stringValue": "sdk-session-0001"
+           }
+          },
+          {
+           "key": "gen_ai.request.model",
+           "value": {
+            "stringValue": "gpt-5.6-luna"
+           }
+          },
+          {
+           "key": "gen_ai.response.model",
+           "value": {
+            "stringValue": "gpt-5.6-luna"
+           }
+          },
+          {
+           "key": "gen_ai.usage.input_tokens",
+           "value": {
+            "intValue": "10400"
+           }
+          },
+          {
+           "key": "gen_ai.usage.cache_read.input_tokens",
+           "value": {
+            "intValue": "0"
+           }
+          },
+          {
+           "key": "gen_ai.usage.cache_write.input_tokens",
+           "value": {
+            "intValue": "0"
+           }
+          },
+          {
+           "key": "gen_ai.usage.output_tokens",
+           "value": {
+            "intValue": "40"
+           }
+          },
+          {
+           "key": "github.copilot.nano_aiu",
+           "value": {
+            "intValue": "184840000"
+           }
+          },
+          {
+           "key": "github.copilot.cost",
+           "value": {
+            "doubleValue": 1.0
+           }
+          },
+          {
+           "key": "github.copilot.initiator",
+           "value": {
+            "stringValue": "user"
+           }
+          },
+          {
+           "key": "gen_ai.usage.reasoning.output_tokens",
+           "value": {
+            "stringValue": "23"
+           }
+          },
+          {
+           "key": "github.copilot.turn_id",
+           "value": {
+            "stringValue": "0"
+           }
+          },
+          {
+           "key": "github.copilot.interaction_id",
+           "value": {
+            "stringValue": "interaction-sdk-1"
+           }
+          }
+         ],
+         "status": {},
+         "parentSpanId": "4000000000000001"
+        },
+        {
+         "traceId": "44444444444444444444444444444444",
+         "spanId": "4000000000000003",
+         "name": "execute_tool view",
+         "kind": 1,
+         "startTimeUnixNano": "1793297003100000000",
+         "endTimeUnixNano": "1793297003400000000",
+         "attributes": [
+          {
+           "key": "gen_ai.operation.name",
+           "value": {
+            "stringValue": "execute_tool"
+           }
+          },
+          {
+           "key": "gen_ai.provider.name",
+           "value": {
+            "stringValue": "github"
+           }
+          },
+          {
+           "key": "gen_ai.tool.name",
+           "value": {
+            "stringValue": "view"
+           }
+          },
+          {
+           "key": "gen_ai.tool.type",
+           "value": {
+            "stringValue": "function"
+           }
+          },
+          {
+           "key": "gen_ai.conversation.id",
+           "value": {
+            "stringValue": "sdk-session-0001"
+           }
+          }
+         ],
+         "status": {},
+         "parentSpanId": "4000000000000001"
+        },
+        {
+         "traceId": "44444444444444444444444444444444",
+         "spanId": "4000000000000004",
+         "name": "chat gpt-5.6-luna",
+         "kind": 3,
+         "startTimeUnixNano": "1793297003500000000",
+         "endTimeUnixNano": "1793297005000000000",
+         "attributes": [
+          {
+           "key": "gen_ai.operation.name",
+           "value": {
+            "stringValue": "chat"
+           }
+          },
+          {
+           "key": "gen_ai.provider.name",
+           "value": {
+            "stringValue": "github"
+           }
+          },
+          {
+           "key": "gen_ai.conversation.id",
+           "value": {
+            "stringValue": "sdk-session-0001"
+           }
+          },
+          {
+           "key": "gen_ai.request.model",
+           "value": {
+            "stringValue": "gpt-5.6-luna"
+           }
+          },
+          {
+           "key": "gen_ai.response.model",
+           "value": {
+            "stringValue": "gpt-5.6-luna"
+           }
+          },
+          {
+           "key": "gen_ai.usage.input_tokens",
+           "value": {
+            "intValue": "10700"
+           }
+          },
+          {
+           "key": "gen_ai.usage.cache_read.input_tokens",
+           "value": {
+            "intValue": "10300"
+           }
+          },
+          {
+           "key": "gen_ai.usage.cache_write.input_tokens",
+           "value": {
+            "intValue": "0"
+           }
+          },
+          {
+           "key": "gen_ai.usage.output_tokens",
+           "value": {
+            "intValue": "6"
+           }
+          },
+          {
+           "key": "github.copilot.nano_aiu",
+           "value": {
+            "intValue": "32300000"
+           }
+          },
+          {
+           "key": "github.copilot.cost",
+           "value": {
+            "doubleValue": 1.0
+           }
+          },
+          {
+           "key": "github.copilot.initiator",
+           "value": {
+            "stringValue": "agent"
+           }
+          },
+          {
+           "key": "github.copilot.turn_id",
+           "value": {
+            "stringValue": "1"
+           }
+          },
+          {
+           "key": "github.copilot.interaction_id",
+           "value": {
+            "stringValue": "interaction-sdk-1"
+           }
+          }
+         ],
+         "status": {},
+         "parentSpanId": "4000000000000001"
+        },
+        {
+         "traceId": "44444444444444444444444444444444",
+         "spanId": "4000000000000001",
+         "name": "invoke_agent",
+         "kind": 1,
+         "startTimeUnixNano": "1793297000000000000",
+         "endTimeUnixNano": "1793297005200000000",
+         "attributes": [
+          {
+           "key": "gen_ai.operation.name",
+           "value": {
+            "stringValue": "invoke_agent"
+           }
+          },
+          {
+           "key": "gen_ai.provider.name",
+           "value": {
+            "stringValue": "github"
+           }
+          },
+          {
+           "key": "gen_ai.conversation.id",
+           "value": {
+            "stringValue": "sdk-session-0001"
+           }
+          },
+          {
+           "key": "gen_ai.usage.input_tokens",
+           "value": {
+            "intValue": "21100"
+           }
+          },
+          {
+           "key": "gen_ai.usage.output_tokens",
+           "value": {
+            "intValue": "46"
+           }
+          },
+          {
+           "key": "github.copilot.nano_aiu",
+           "value": {
+            "intValue": "217140000"
+           }
+          },
+          {
+           "key": "github.copilot.cost",
+           "value": {
+            "doubleValue": 1.0
+           }
+          },
+          {
+           "key": "github.copilot.agent.type",
+           "value": {
+            "stringValue": "builtin"
+           }
+          }
+         ],
+         "status": {},
+         "events": [
+          {
+           "timeUnixNano": "1793297000000000000",
+           "name": "github.copilot.user.message",
+           "attributes": [
+            {
+             "key": "github.copilot.user.message.interaction_id",
+             "value": {
+              "stringValue": "interaction-sdk-1"
+             }
+            },
+            {
+             "key": "github.copilot.user.message.source",
+             "value": {
+              "stringValue": "user"
+             }
+            },
+            {
+             "key": "github.copilot.user.message.turn_id",
+             "value": {
+              "stringValue": "0"
+             }
+            }
+           ]
+          }
+         ]
+        }
+       ]
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "resourceSpans": [
+    {
+     "resource": {
+      "attributes": [
+       {
+        "key": "service.name",
+        "value": {
+         "stringValue": "copilot-chat"
+        }
+       },
+       {
+        "key": "session.id",
+        "value": {
+         "stringValue": "vscode-window-1"
+        }
+       }
+      ]
+     },
+     "scopeSpans": [
+      {
+       "scope": {
+        "name": "copilot-chat",
+        "version": "1.0.105"
+       },
+       "spans": [
+        {
+         "traceId": "55555555555555555555555555555555",
+         "spanId": "5000000000000001",
+         "name": "invoke_agent copilotcli",
+         "kind": 1,
+         "startTimeUnixNano": "1793297100000000000",
+         "endTimeUnixNano": "1793297110000000000",
+         "attributes": [
+          {
+           "key": "gen_ai.operation.name",
+           "value": {
+            "stringValue": "invoke_agent"
+           }
+          },
+          {
+           "key": "gen_ai.agent.name",
+           "value": {
+            "stringValue": "copilotcli"
+           }
+          },
+          {
+           "key": "gen_ai.conversation.id",
+           "value": {
+            "stringValue": "legacy-chat-1"
+           }
+          }
+         ],
+         "status": {}
+        },
+        {
+         "traceId": "55555555555555555555555555555555",
+         "spanId": "5000000000000002",
+         "name": "chat gpt-4o",
+         "kind": 3,
+         "startTimeUnixNano": "1793297100500000000",
+         "endTimeUnixNano": "1793297103000000000",
+         "attributes": [
+          {
+           "key": "gen_ai.operation.name",
+           "value": {
+            "stringValue": "chat"
+           }
+          },
+          {
+           "key": "gen_ai.conversation.id",
+           "value": {
+            "stringValue": "legacy-chat-1"
+           }
+          },
+          {
+           "key": "gen_ai.request.model",
+           "value": {
+            "stringValue": "gpt-4o"
+           }
+          },
+          {
+           "key": "copilot_chat.copilot_usage_nano_aiu",
+           "value": {
+            "intValue": "900000000"
+           }
+          }
+         ],
+         "status": {},
+         "parentSpanId": "5000000000000001"
+        }
+       ]
+      }
+     ]
+    },
+    {
+     "resource": {
+      "attributes": [
+       {
+        "key": "service.name",
+        "value": {
+         "stringValue": "other-otel-app"
+        }
+       }
+      ]
+     },
+     "scopeSpans": [
+      {
+       "scope": {
+        "name": "other.scope",
+        "version": "1.0.105"
+       },
+       "spans": [
+        {
+         "traceId": "66666666666666666666666666666666",
+         "spanId": "6000000000000001",
+         "name": "chat other-model",
+         "kind": 3,
+         "startTimeUnixNano": "1793297200000000000",
+         "endTimeUnixNano": "1793297201000000000",
+         "attributes": [
+          {
+           "key": "gen_ai.operation.name",
+           "value": {
+            "stringValue": "chat"
+           }
+          },
+          {
+           "key": "gen_ai.conversation.id",
+           "value": {
+            "stringValue": "foreign-1"
+           }
+          },
+          {
+           "key": "github.copilot.nano_aiu",
+           "value": {
+            "intValue": "123000000"
+           }
+          }
+         ],
+         "status": {}
+        }
+       ]
+      }
+     ]
+    }
+   ]
+  }
+ ],
+ "expected": {
+  "sessions": {
+   "cli-session-0001": {
+    "chatSpans": 10,
+    "toolSpans": 8,
+    "agentSpans": 3,
+    "nanoAiu": 7563811000,
+    "inputTokens": 172364,
+    "cacheReadTokens": 122500,
+    "outputTokens": 600,
+    "reasoningTokens": 12,
+    "surface": "cli",
+    "mode": "interactive",
+    "prompts": 2,
+    "startedAt": "2026-10-29T18:00:00.000Z",
+    "endedAt": "2026-10-29T18:10:05.000Z"
+   },
+   "vscode-session-0001": {
+    "chatSpans": 2,
+    "toolSpans": 2,
+    "agentSpans": 1,
+    "nanoAiu": 600000000,
+    "inputTokens": 24500,
+    "cacheReadTokens": 19000,
+    "outputTokens": 380,
+    "reasoningTokens": 40,
+    "surface": "vscode",
+    "mode": "interactive",
+    "prompts": 1,
+    "startedAt": "2026-10-29T18:01:40.000Z",
+    "endedAt": "2026-10-29T18:01:48.200Z"
+   },
+   "sdk-session-0001": {
+    "chatSpans": 2,
+    "toolSpans": 1,
+    "agentSpans": 1,
+    "nanoAiu": 217140000,
+    "inputTokens": 21100,
+    "cacheReadTokens": 10300,
+    "outputTokens": 46,
+    "reasoningTokens": 23,
+    "surface": "sdk",
+    "mode": "automated",
+    "prompts": 1,
+    "startedAt": "2026-10-29T18:03:20.000Z",
+    "endedAt": "2026-10-29T18:03:25.200Z"
+   }
+  },
+  "acceptedSpans": 30,
+  "droppedSpans": 4
+ }
+}

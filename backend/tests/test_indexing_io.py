@@ -1,17 +1,14 @@
 from contextlib import closing, redirect_stdout
-import errno
 import io
 import json
 from pathlib import Path
 import sqlite3
-import subprocess
 import sys
 import tempfile
-import tracemalloc
 import unittest
 from unittest.mock import Mock, patch
 
-from backend.app import database_backup, indexing_job, log_io
+from backend.app import database_backup, indexing_job
 from backend.app.indexing import IndexingBlocked
 
 
@@ -20,89 +17,38 @@ class IndexingIoTests(unittest.TestCase):
         temporary = tempfile.TemporaryDirectory()
         self.addCleanup(temporary.cleanup)
         self.root = Path(temporary.name)
-        self.log = self.root / "workspace/GitHub.copilot-chat/debug-logs/synthetic/main.jsonl"
-        self.log.parent.mkdir(parents=True)
-        self.log.write_text("\n".join(json.dumps(event) for event in [
-            {"ts": 1000, "type": "user_message", "attrs": {"content": "Synthetic question"}},
-            {"ts": 1100, "type": "llm_request", "attrs": {"model": "synthetic", "outputTokens": 10}},
-        ]) + "\n", encoding="utf-8")
-
-    def test_log_child_supports_discovery_and_bounded_turn_reads(self) -> None:
-        with patch.object(sys, "argv", ["log_io", "discover", str(self.root)]), redirect_stdout(io.StringIO()) as output:
-            log_io.main()
-        self.assertEqual(json.loads(output.getvalue())["synthetic"][0], str(self.log))
-        with patch.object(sys, "argv", ["log_io", "turns", str(self.log), "0", "2000"]), redirect_stdout(io.StringIO()) as output:
-            log_io.main()
-        self.assertEqual(json.loads(output.getvalue())[0]["output_tokens"], 10)
-        with patch.object(sys, "argv", ["log_io", "unknown", str(self.log)]):
-            with self.assertRaises(ValueError):
-                log_io.main()
-
-    def test_discovery_tolerates_removed_files_and_rejects_excessive_log_counts(self) -> None:
-        original_stat = Path.stat
-
-        def removed(candidate, *arguments, **keywords):
-            if candidate == self.log:
-                raise FileNotFoundError(errno.ENOENT, "synthetic missing log")
-            return original_stat(candidate, *arguments, **keywords)
-
-        with patch.object(Path, "stat", autospec=True, side_effect=removed):
-            self.assertEqual(log_io.discover_logs(self.root), {})
-        with patch.object(log_io, "MAX_DISCOVERED_LOGS", 0):
-            with self.assertRaisesRegex(IndexingBlocked, "log_discovery_limit"):
-                log_io.discover_logs(self.root)
-
-    def test_log_larger_than_64_mib_streams_without_retaining_all_events(self) -> None:
-        ignored_event = json.dumps({"type": "tool_result", "attrs": {"content": "x" * 65_536}}) + "\n"
-        with self.log.open("a", encoding="utf-8") as output:
-            for _event in range(1_025):
-                output.write(ignored_event)
-            output.write(json.dumps({
-                "ts": 1200, "type": "llm_request",
-                "attrs": {"model": "synthetic", "outputTokens": 7},
-            }) + "\n")
-        self.assertGreater(self.log.stat().st_size, 64 * 1024 * 1024)
-        tracemalloc.start()
-        try:
-            with (
-                patch.object(sys, "argv", ["log_io", "turns", str(self.log), "0", "2000"]),
-                redirect_stdout(io.StringIO()) as result,
-            ):
-                log_io.main()
-            peak = tracemalloc.get_traced_memory()[1]
-        finally:
-            tracemalloc.stop()
-        self.assertEqual(json.loads(result.getvalue())[0]["output_tokens"], 17)
-        self.assertLess(peak, 8 * 1024 * 1024)
-
-    def test_isolated_io_errors_remain_bounded_and_do_not_echo_private_details(self) -> None:
-        with patch.object(log_io.subprocess, "run", return_value=Mock(returncode=0, stdout='{"synthetic": []}')):
-            self.assertEqual(log_io.isolated_log_io("discover", self.root), {"synthetic": []})
-        with patch.object(log_io.subprocess, "run", side_effect=subprocess.TimeoutExpired("synthetic", 5)):
-            with self.assertRaisesRegex(IndexingBlocked, "log_io_timeout"):
-                log_io.isolated_log_io("discover", self.root)
-        with patch.object(log_io.subprocess, "run", return_value=Mock(returncode=1, stderr="private fixture")):
-            with self.assertRaisesRegex(IndexingBlocked, "^log_unavailable$"):
-                log_io.isolated_log_io("discover", self.root)
 
     def test_preparation_parent_handles_failure_and_explicit_blocked_reasons(self) -> None:
         with patch.object(indexing_job.subprocess, "run", return_value=Mock(returncode=1)):
             with self.assertRaisesRegex(IndexingBlocked, "preparation_failed"):
-                indexing_job.prepare_in_process(self.root / "db", {}, False, {}, None)
-        with patch.object(indexing_job.subprocess, "run", return_value=Mock(returncode=0, stdout='{"error":"waiting_for_logs"}')):
-            with self.assertRaisesRegex(IndexingBlocked, "waiting_for_logs"):
-                indexing_job.prepare_in_process(self.root / "db", {}, False, {}, None)
+                indexing_job.prepare_in_process(self.root / "db", {}, False)
+        with patch.object(indexing_job.subprocess, "run", return_value=Mock(returncode=0, stdout='{"error":"waiting_for_artifact"}')):
+            with self.assertRaisesRegex(IndexingBlocked, "waiting_for_artifact"):
+                indexing_job.prepare_in_process(self.root / "db", {}, False)
+
+    def test_preparation_parent_sends_only_database_work_and_content_policy(self) -> None:
+        result = Mock(returncode=0, stdout='{"artifact":{"experiment":"synthetic"},"groups":[]}')
+        with patch.object(indexing_job.subprocess, "run", return_value=result) as run:
+            artifact, groups = indexing_job.prepare_in_process(
+                self.root / "value.db", {"work_key": "trace:synthetic"}, True,
+            )
+        self.assertEqual((artifact, groups), ({"experiment": "synthetic"}, []))
+        self.assertEqual(json.loads(run.call_args.kwargs["input"]), {
+            "database": str(self.root / "value.db"),
+            "work": {"work_key": "trace:synthetic"},
+            "contentEnabled": True,
+        })
+        self.assertEqual(run.call_args.args[0][1:], ["-B", "-m", "backend.app.indexing_job"])
+        self.assertEqual(run.call_args.kwargs["timeout"], indexing_job.PREPARATION_TIMEOUT_SECONDS)
 
     def test_preparation_child_opens_database_read_only_and_returns_safe_results(self) -> None:
         database = self.root / "value.db"
         with closing(sqlite3.connect(database)) as connection, connection:
             connection.execute("CREATE TABLE fixture (value INTEGER)")
-        request = json.dumps({
-            "database": str(database), "work": {}, "contentEnabled": False,
-            "logs": {"synthetic": [str(self.log), 1, 2]}, "logError": None,
-        })
+        request = json.dumps({"database": str(database), "work": {}, "contentEnabled": False})
 
         def prepare(store, _work, _content_enabled):
+            self.assertFalse(store.isolate_preparation)
             connection = store._connect()
             try:
                 with self.assertRaises(sqlite3.OperationalError):
@@ -118,7 +64,10 @@ class IndexingIoTests(unittest.TestCase):
         ):
             indexing_job.main()
         self.assertEqual(json.loads(output.getvalue()), {"artifact": {"experiment": "synthetic"}, "groups": []})
-        for failure, reason in ((IndexingBlocked("waiting_for_logs"), "waiting_for_logs"), (ValueError("private fixture"), "preparation_failed")):
+        for failure, reason in (
+            (IndexingBlocked("waiting_for_telemetry"), "waiting_for_telemetry"),
+            (ValueError("private fixture"), "preparation_failed"),
+        ):
             with (
                 patch("backend.app.store.ValueStore._prepare_index_work", side_effect=failure),
                 patch.object(sys, "stdin", io.StringIO(request)),
@@ -126,6 +75,7 @@ class IndexingIoTests(unittest.TestCase):
             ):
                 indexing_job.main()
             self.assertEqual(json.loads(output.getvalue()), {"error": reason})
+            self.assertNotIn("private fixture", output.getvalue())
 
     def test_backup_command_preserves_source_and_verifies_destination(self) -> None:
         source = self.root / "source.db"

@@ -9,13 +9,19 @@ import type {
   TraceSession,
   TraceSessionEvidence
 } from './experiment-types.js';
+import {
+  combinedMode,
+  combinedSurface,
+  modeAttribute,
+  parseMode,
+  parseSurface,
+  sessionKeyAttribute,
+  spanOperation,
+  surfaceAttribute,
+  toolNameFromSpan
+} from './runtime-telemetry.js';
 import { readStableJsonLines } from './trace-archive.js';
 
-export {
-  collectDirectTurnUsage,
-  directTurnLogSignature,
-  reuseDirectTurnUsage
-} from './direct-turns.js';
 export { collectSourceStats } from './source-stats.js';
 export { readStableTraceArchive } from './trace-archive.js';
 export type {
@@ -73,21 +79,24 @@ interface MutableEvidence {
 interface MutableSessionEvidence extends MutableEvidence {
   startedMilliseconds: number;
   endedMilliseconds: number;
-  chatSessionIds: Set<string>;
+  surfaces: Set<string>;
+  modes: Set<string>;
 }
 
 export interface SerializedSessionEvidence {
   startedMilliseconds: number;
   endedMilliseconds: number;
-  chatSessionIds: string[];
+  surfaces: string[];
+  modes: string[];
   seenSpans: string[];
   seenTimedSpans: string[];
   timedSpans: TimedPhaseSpan[];
   models: Record<string, MutableUsage>;
 }
 
+/** Version 2 holds Copilot runtime evidence keyed by the stamped `algalon.session.key`. */
 export interface SerializedTraceEvidence {
-  version: 1;
+  version: 2;
   latestSpanTimestampMilliseconds: number;
   sessions: Record<string, SerializedSessionEvidence>;
 }
@@ -108,7 +117,7 @@ function numberAttribute(attributes: OtelAttribute[] | undefined, key: string): 
   const value = attributeValue(attributes, key);
   const candidate = value?.intValue ?? value?.doubleValue ?? value?.stringValue ?? 0;
   const number = Number(candidate);
-  return Number.isFinite(number) ? number : 0;
+  return Number.isFinite(number) && number > 0 ? number : 0;
 }
 
 function spanStartMilliseconds(span: OtelSpan): number {
@@ -127,6 +136,10 @@ function spanEndMilliseconds(span: OtelSpan): number {
   }
 }
 
+function spanIdentity(span: OtelSpan): string {
+  return span.spanId ?? `${span.traceId ?? ''}|${span.name}|${span.startTimeUnixNano ?? ''}`;
+}
+
 function createMutableEvidence(): MutableEvidence {
   return {
     seenSpans: new Set(),
@@ -136,31 +149,47 @@ function createMutableEvidence(): MutableEvidence {
   };
 }
 
-function collectSpanEvidence(evidence: MutableEvidence, span: OtelSpan): void {
-  const startedAt = spanStartMilliseconds(span);
-  const endedAt = spanEndMilliseconds(span);
-  const identity = span.spanId ?? `${span.traceId ?? ''}|${span.name}|${span.startTimeUnixNano ?? ''}`;
-  if (!evidence.seenTimedSpans.has(identity)) {
+function reasoningTokens(attributes: OtelAttribute[] | undefined): number {
+  return numberAttribute(attributes, 'gen_ai.usage.reasoning.output_tokens') ||
+    numberAttribute(attributes, 'gen_ai.usage.reasoning_tokens');
+}
+
+/**
+ * Collects one runtime span. AI usage comes from `chat` spans only: the runtime also stamps
+ * `github.copilot.nano_aiu` on `invoke_agent` spans, and adding both would double-count.
+ */
+function collectSpanEvidence(evidence: MutableEvidence, span: OtelSpan): boolean {
+  const operation = spanOperation(span.name, stringAttribute(span.attributes, 'gen_ai.operation.name'));
+  if (!operation) return false;
+  const identity = spanIdentity(span);
+  const isChat = operation === 'chat';
+  const newSpan = !evidence.seenTimedSpans.has(identity);
+  if (newSpan) {
     evidence.seenTimedSpans.add(identity);
-    const inputTokens = numberAttribute(span.attributes, 'gen_ai.usage.input_tokens');
-    const cacheReadTokens = numberAttribute(span.attributes, 'gen_ai.usage.cache_read.input_tokens');
+    const inputTokens = isChat ? numberAttribute(span.attributes, 'gen_ai.usage.input_tokens') : 0;
+    const cacheReadTokens = isChat ? numberAttribute(span.attributes, 'gen_ai.usage.cache_read.input_tokens') : 0;
     evidence.timedSpans.push({
       identity,
       name: span.name ?? 'unknown',
-      toolName: stringAttribute(span.attributes, 'gen_ai.tool.name'),
-      startMilliseconds: startedAt,
-      endMilliseconds: endedAt,
-      nanoAiCredits: numberAttribute(span.attributes, 'copilot_chat.copilot_usage_nano_aiu'),
+      operation,
+      toolName: operation === 'execute_tool'
+        ? toolNameFromSpan(span.name, stringAttribute(span.attributes, 'gen_ai.tool.name'))
+        : undefined,
+      startMilliseconds: spanStartMilliseconds(span),
+      endMilliseconds: spanEndMilliseconds(span),
+      nanoAiCredits: isChat ? numberAttribute(span.attributes, 'github.copilot.nano_aiu') : 0,
       uncachedInputTokens: Math.max(0, inputTokens - cacheReadTokens),
-      outputTokens: numberAttribute(span.attributes, 'gen_ai.usage.output_tokens'),
-      reasoningTokens: numberAttribute(span.attributes, 'gen_ai.usage.reasoning_tokens')
+      outputTokens: isChat ? numberAttribute(span.attributes, 'gen_ai.usage.output_tokens') : 0,
+      reasoningTokens: isChat ? reasoningTokens(span.attributes) : 0
     });
   }
-  if (!span.name?.startsWith('chat ') || evidence.seenSpans.has(identity)) return;
+  if (!isChat || evidence.seenSpans.has(identity)) return newSpan;
   evidence.seenSpans.add(identity);
 
-  const model = stringAttribute(span.attributes, 'gen_ai.request.model') ??
-    stringAttribute(span.attributes, 'gen_ai.response.model') ?? 'unknown';
+  const namedModel = span.name?.startsWith('chat ') ? span.name.slice('chat '.length).trim() : '';
+  const model = stringAttribute(span.attributes, 'gen_ai.request.model') ||
+    stringAttribute(span.attributes, 'gen_ai.response.model') ||
+    namedModel || 'unknown';
   const usage = evidence.models.get(model) ?? {
     requests: 0,
     inputTokens: 0,
@@ -173,9 +202,10 @@ function collectSpanEvidence(evidence: MutableEvidence, span: OtelSpan): void {
   usage.inputTokens += numberAttribute(span.attributes, 'gen_ai.usage.input_tokens');
   usage.cacheReadTokens += numberAttribute(span.attributes, 'gen_ai.usage.cache_read.input_tokens');
   usage.outputTokens += numberAttribute(span.attributes, 'gen_ai.usage.output_tokens');
-  usage.reasoningTokens += numberAttribute(span.attributes, 'gen_ai.usage.reasoning_tokens');
-  usage.nanoAiCredits += numberAttribute(span.attributes, 'copilot_chat.copilot_usage_nano_aiu');
+  usage.reasoningTokens += reasoningTokens(span.attributes);
+  usage.nanoAiCredits += numberAttribute(span.attributes, 'github.copilot.nano_aiu');
   evidence.models.set(model, usage);
+  return newSpan;
 }
 
 function usageFromEvidence(
@@ -227,6 +257,10 @@ function usageFromEvidence(
   };
 }
 
+function stampedSessionKey(resourceSpan: NonNullable<OtelRecord['resourceSpans']>[number]): string | undefined {
+  return stringAttribute(resourceSpan.resource?.attributes, sessionKeyAttribute) || undefined;
+}
+
 function summarizeRecords(
   records: Iterable<OtelRecord>,
   start: Date,
@@ -261,8 +295,8 @@ function collectWindowEvidenceRecord(
   sessionId?: string
 ): void {
   for (const resourceSpan of record.resourceSpans ?? []) {
-    if (stringAttribute(resourceSpan.resource?.attributes, 'service.name') !== 'copilot-chat') continue;
-    if (sessionId && stringAttribute(resourceSpan.resource?.attributes, 'session.id') !== sessionId) continue;
+    const sessionKey = stampedSessionKey(resourceSpan);
+    if (!sessionKey || (sessionId && sessionKey !== sessionId)) continue;
     for (const scopeSpan of resourceSpan.scopeSpans ?? []) {
       for (const span of scopeSpan.spans ?? []) {
         const startedAt = spanStartMilliseconds(span);
@@ -284,34 +318,40 @@ function collectSessionEvidenceRecord(
   changedSessions?: Set<string>
 ): void {
   for (const resourceSpan of record.resourceSpans ?? []) {
-    if (stringAttribute(resourceSpan.resource?.attributes, 'service.name') !== 'copilot-chat') continue;
-    const sessionId = stringAttribute(resourceSpan.resource?.attributes, 'session.id');
+    const sessionId = stampedSessionKey(resourceSpan);
     if (!sessionId) continue;
+    const surface = parseSurface(stringAttribute(resourceSpan.resource?.attributes, surfaceAttribute));
+    const mode = parseMode(stringAttribute(resourceSpan.resource?.attributes, modeAttribute));
     const session = sessions.get(sessionId) ?? {
       ...createMutableEvidence(),
       startedMilliseconds: Number.POSITIVE_INFINITY,
       endedMilliseconds: 0,
-      chatSessionIds: new Set<string>()
+      surfaces: new Set<string>(),
+      modes: new Set<string>()
     };
+    let accepted = false;
     for (const scopeSpan of resourceSpan.scopeSpans ?? []) {
       for (const span of scopeSpan.spans ?? []) {
         const startedMilliseconds = spanStartMilliseconds(span);
         const endedMilliseconds = spanEndMilliseconds(span);
         if (startedMilliseconds <= 0 || endedMilliseconds < startedMilliseconds) continue;
-        const identity = span.spanId ?? `${span.traceId ?? ''}|${span.name}|${span.startTimeUnixNano ?? ''}`;
-        const newSpan = !session.seenTimedSpans.has(identity);
+        if (!spanOperation(span.name, stringAttribute(span.attributes, 'gen_ai.operation.name'))) continue;
+        accepted = true;
         session.startedMilliseconds = Math.min(session.startedMilliseconds, startedMilliseconds);
         session.endedMilliseconds = Math.max(session.endedMilliseconds, endedMilliseconds);
-        const chatSessionId = stringAttribute(span.attributes, 'gen_ai.conversation.id') ??
-          stringAttribute(span.attributes, 'copilot_chat.chat_session_id');
-        const newChatSession = Boolean(chatSessionId && !session.chatSessionIds.has(chatSessionId));
-        if (chatSessionId) session.chatSessionIds.add(chatSessionId);
-        collectSpanEvidence(session, span);
-        if (newSpan || newChatSession) changedSessions?.add(sessionId);
+        const newSurface = !session.surfaces.has(surface);
+        const newMode = !session.modes.has(mode);
+        session.surfaces.add(surface);
+        session.modes.add(mode);
+        if (collectSpanEvidence(session, span) || newSurface || newMode) changedSessions?.add(sessionId);
       }
     }
-    sessions.set(sessionId, session);
+    if (accepted) sessions.set(sessionId, session);
   }
+}
+
+function sessionAttribution(session: MutableSessionEvidence): Pick<TraceSession, 'surface' | 'mode'> {
+  return { surface: combinedSurface(session.surfaces), mode: combinedMode(session.modes) };
 }
 
 function sessionEvidenceFromMap(
@@ -334,9 +374,7 @@ function sessionEvidenceFromMap(
       return {
         session: {
           sessionId,
-          ...(session.chatSessionIds.size > 0
-            ? { chatSessionIds: [...session.chatSessionIds].sort() }
-            : {}),
+          ...sessionAttribution(session),
           startedAt: new Date(session.startedMilliseconds).toISOString(),
           endedAt: new Date(session.endedMilliseconds).toISOString(),
           aiCostUsd: usage.aiCostUsd
@@ -352,12 +390,14 @@ export class TraceEvidenceAccumulator {
   private readonly accumulated: Map<string, MutableSessionEvidence>;
 
   constructor(serialized?: SerializedTraceEvidence) {
-    this.accumulated = new Map(Object.entries(serialized?.sessions ?? {}).map(([sessionId, session]) => [
+    const sessions = serialized?.version === 2 ? serialized.sessions : {};
+    this.accumulated = new Map(Object.entries(sessions).map(([sessionId, session]) => [
       sessionId,
       {
         startedMilliseconds: session.startedMilliseconds,
         endedMilliseconds: session.endedMilliseconds,
-        chatSessionIds: new Set(session.chatSessionIds),
+        surfaces: new Set(session.surfaces),
+        modes: new Set(session.modes),
         seenSpans: new Set(session.seenSpans),
         seenTimedSpans: new Set(session.seenTimedSpans),
         timedSpans: session.timedSpans,
@@ -399,7 +439,7 @@ export class TraceEvidenceAccumulator {
 
   serialize(): SerializedTraceEvidence {
     return {
-      version: 1,
+      version: 2,
       latestSpanTimestampMilliseconds: this.latestSpanTimestampMilliseconds(),
       sessions: Object.fromEntries([...this.accumulated.entries()]
         .filter(([, session]) => Number.isFinite(session.startedMilliseconds) &&
@@ -409,7 +449,8 @@ export class TraceEvidenceAccumulator {
           {
             startedMilliseconds: session.startedMilliseconds,
             endedMilliseconds: session.endedMilliseconds,
-            chatSessionIds: [...session.chatSessionIds].sort(),
+            surfaces: [...session.surfaces].sort(),
+            modes: [...session.modes].sort(),
             seenSpans: [...session.seenSpans].sort(),
             seenTimedSpans: [...session.seenTimedSpans].sort(),
             timedSpans: session.timedSpans,
@@ -425,9 +466,7 @@ function traceSessionsFromMap(sessions: Map<string, MutableSessionEvidence>): Tr
     .filter(([, session]) => Number.isFinite(session.startedMilliseconds) && session.endedMilliseconds > 0)
     .map(([sessionId, session]) => ({
       sessionId,
-      ...(session.chatSessionIds.size > 0
-        ? { chatSessionIds: [...session.chatSessionIds].sort() }
-        : {}),
+      ...sessionAttribution(session),
       startedAt: new Date(session.startedMilliseconds).toISOString(),
       endedAt: new Date(session.endedMilliseconds).toISOString(),
       aiCostUsd: [...session.models.values()].reduce(
@@ -461,57 +500,9 @@ export function summarizeTraceRecords(
 }
 
 export function discoverTraceSessions(records: unknown[]): TraceSession[] {
-  const sessions = new Map<string, {
-    startedMilliseconds: number;
-    endedMilliseconds: number;
-    nanoAiCredits: number;
-    spans: Set<string>;
-    chatSessionIds: Set<string>;
-  }>();
-  for (const record of records as OtelRecord[]) {
-    for (const resourceSpan of record.resourceSpans ?? []) {
-      if (stringAttribute(resourceSpan.resource?.attributes, 'service.name') !== 'copilot-chat') continue;
-      const sessionId = stringAttribute(resourceSpan.resource?.attributes, 'session.id');
-      if (!sessionId) continue;
-      const session = sessions.get(sessionId) ?? {
-        startedMilliseconds: Number.POSITIVE_INFINITY,
-        endedMilliseconds: 0,
-        nanoAiCredits: 0,
-        spans: new Set<string>(),
-        chatSessionIds: new Set<string>()
-      };
-      for (const scopeSpan of resourceSpan.scopeSpans ?? []) {
-        for (const span of scopeSpan.spans ?? []) {
-          const startedMilliseconds = spanStartMilliseconds(span);
-          const endedMilliseconds = spanEndMilliseconds(span);
-          if (startedMilliseconds <= 0 || endedMilliseconds < startedMilliseconds) continue;
-          session.startedMilliseconds = Math.min(session.startedMilliseconds, startedMilliseconds);
-          session.endedMilliseconds = Math.max(session.endedMilliseconds, endedMilliseconds);
-          const chatSessionId = stringAttribute(span.attributes, 'gen_ai.conversation.id') ??
-            stringAttribute(span.attributes, 'copilot_chat.chat_session_id');
-          if (chatSessionId) session.chatSessionIds.add(chatSessionId);
-          const identity = span.spanId ?? `${span.traceId ?? ''}|${span.name}|${span.startTimeUnixNano ?? ''}`;
-          if (!session.spans.has(identity) && span.name?.startsWith('chat ')) {
-            session.spans.add(identity);
-            session.nanoAiCredits += numberAttribute(span.attributes, 'copilot_chat.copilot_usage_nano_aiu');
-          }
-        }
-      }
-      sessions.set(sessionId, session);
-    }
-  }
-  return [...sessions.entries()]
-    .filter(([, session]) => Number.isFinite(session.startedMilliseconds) && session.endedMilliseconds > 0)
-    .map(([sessionId, session]) => ({
-      sessionId,
-      ...session.chatSessionIds.size > 0
-        ? { chatSessionIds: [...session.chatSessionIds].sort() }
-        : {},
-      startedAt: new Date(session.startedMilliseconds).toISOString(),
-      endedAt: new Date(session.endedMilliseconds).toISOString(),
-      aiCostUsd: session.nanoAiCredits / 1_000_000_000 / 100
-    }))
-    .sort((left, right) => left.startedAt.localeCompare(right.startedAt) || left.sessionId.localeCompare(right.sessionId));
+  const sessions = createSessionEvidenceMap();
+  for (const record of records) collectSessionEvidenceRecord(sessions, record as OtelRecord);
+  return traceSessionsFromMap(sessions);
 }
 
 export async function collectTraceUsage(
@@ -562,4 +553,3 @@ export async function collectTraceSessionEvidence(
   );
   return sessionEvidenceFromMap(sessions, phasePatterns, undefined, maxIdleGapSeconds);
 }
-

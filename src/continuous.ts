@@ -1,13 +1,14 @@
 import { createHash } from 'node:crypto';
+import { readFile, rename, writeFile } from 'node:fs/promises';
 import { calculateMechanisticBenchmark, conservativeQualityFactor, type BenchmarkResult } from './benchmark.js';
 import {
   collectTraceUsage,
-  reuseDirectTurnUsage,
   type ExperimentUsage,
   type TraceSessionEvidence
 } from './experiment-evidence.js';
 import { buildExperimentMetricPayload, publishMetrics } from './metrics.js';
 import { collectOtelSnapshot } from './otel.js';
+import type { SessionMode, SessionSurface } from './runtime-telemetry.js';
 import type { OtelSnapshot, ValueConfig } from './schema.js';
 import {
   calculateSourceDelta,
@@ -18,7 +19,7 @@ import {
   type SourceSnapshot
 } from './source-delta.js';
 
-export const SESSION_CALCULATION_VERSION = 9;
+export const SESSION_CALCULATION_VERSION = 10;
 
 export function modelConfigurationSignature(config: ValueConfig): string {
   return createHash('sha256').update(JSON.stringify({
@@ -50,8 +51,6 @@ export function earliestSessionStart(trackedStartedAt: string, observedStartedAt
 export function sessionStateForObservedBounds<T extends {
   startedAt: string;
   publishedThrough?: string;
-  directLogSignature?: string | null;
-  directUsage?: ExperimentUsage;
 }>(tracked: T, observedStartedAt: string, observedEndedAt: string): {
   candidate: T;
   boundsExpanded: boolean;
@@ -67,10 +66,6 @@ export function sessionStateForObservedBounds<T extends {
   const candidate = { ...tracked, startedAt };
   const boundsExpanded = startedAt !== tracked.startedAt ||
     observedEndMilliseconds > publishedEndMilliseconds;
-  if (boundsExpanded) {
-    delete candidate.directLogSignature;
-    delete candidate.directUsage;
-  }
   return { candidate, boundsExpanded };
 }
 
@@ -99,6 +94,32 @@ export function sessionNeedsEvaluation(
     calculationVersion !== SESSION_CALCULATION_VERSION ||
     publishedUsageSignature !== usageSignature ||
     publishedModelConfigurationSignature !== currentModelConfigurationSignature;
+}
+
+/**
+ * Advances a published artifact's inbox cursor when newer records changed no evaluation input. The read
+ * model waits until an artifact covers a session's latest inbox cursor, and an unchanged session is never
+ * republished, so without this an inert span would leave indexing waiting indefinitely.
+ */
+export async function refreshArtifactInboxCursor(
+  artifactPath: string,
+  inboxCursor: number | undefined
+): Promise<boolean> {
+  if (inboxCursor === undefined) return false;
+  let artifact: unknown;
+  try {
+    artifact = JSON.parse(await readFile(artifactPath, 'utf8'));
+  } catch {
+    return false;
+  }
+  if (!artifact || typeof artifact !== 'object' || Array.isArray(artifact)) return false;
+  const published = artifact as { calculationVersion?: unknown; inboxCursor?: unknown };
+  if (published.calculationVersion !== SESSION_CALCULATION_VERSION) return false;
+  if (typeof published.inboxCursor === 'number' && published.inboxCursor >= inboxCursor) return false;
+  const temporaryPath = `${artifactPath}.${process.pid}.tmp`;
+  await writeFile(temporaryPath, `${JSON.stringify({ ...published, inboxCursor }, null, 2)}\n`, 'utf8');
+  await rename(temporaryPath, artifactPath);
+  return true;
 }
 
 export function migrationUsageFromRefreshedEvidence(
@@ -172,11 +193,12 @@ export interface ContinuousWindowDependencies {
 }
 
 export interface ContinuousWindowResult {
-  status: 'no_ai_usage' | 'insufficient_phase_evidence' | 'published';
+  status: 'no_ai_usage' | 'insufficient_phase_evidence' | 'published' | 'excluded_automated';
   nextBaseline: SourceSnapshot;
   source: OtelSourceDelta;
   usage: ExperimentUsage;
   benchmark: BenchmarkResult | null;
+  exclusionReason?: 'automated_session';
 }
 
 function benchmarkPhaseInput(usage: ExperimentUsage): Parameters<typeof calculateMechanisticBenchmark>[0]['phases'] {
@@ -343,6 +365,8 @@ export interface OtelOnlyWindowInput {
   startedAt: string;
   completedAt: string;
   config: ValueConfig;
+  surface?: SessionSurface;
+  mode?: SessionMode;
 }
 
 export interface OtelOnlyWindowDependencies {
@@ -403,7 +427,9 @@ export async function evaluateOtelOnlyWindow(
     observed.editSurvivalNoRevert,
     observed.editSurvivalFourGram
   );
-  const benchmark = input.usage.aiCostUsd > 0 && hasAllocatedPhaseTime(input.usage) &&
+  // Modeled developer value assumes a person was engaged; explicitly automated sessions keep observed usage only.
+  const automated = input.mode === 'automated';
+  const benchmark = !automated && input.usage.aiCostUsd > 0 && hasAllocatedPhaseTime(input.usage) &&
     input.config.benchmark.acknowledgedAssumptions
     ? calculateMechanisticBenchmark({
         phases: benchmarkPhaseInput(input.usage),
@@ -420,14 +446,16 @@ export async function evaluateOtelOnlyWindow(
     input.experiment,
     input.startedAt,
     completedAt,
-    new Date()
+    new Date(),
+    { surface: input.surface ?? 'other', mode: input.mode ?? 'interactive' }
   );
   await dependencies.publish(payload, input.config);
   return {
-    status: input.usage.aiCostUsd > 0 ? 'published' : 'no_ai_usage',
+    status: automated ? 'excluded_automated' : input.usage.aiCostUsd > 0 ? 'published' : 'no_ai_usage',
     nextBaseline: { capturedAt: input.completedAt, roots: ['otel-only'], files: {} },
     source: emptySource,
     usage: input.usage,
-    benchmark
+    benchmark,
+    ...(automated ? { exclusionReason: 'automated_session' as const } : {})
   };
 }

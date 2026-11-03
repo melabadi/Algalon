@@ -91,10 +91,10 @@ const defaultBenchmark = {
   charactersPerWord: 5,
   calibrationSources: [],
   phaseToolPatterns: {
-    planning: ['manage_todo_list', 'todo', 'ask_questions', 'questions'],
-    research: ['search', 'read', 'fetch', 'grep', 'semantic', 'reference', 'documentation', 'list_dir', 'view_image', 'tool_search', 'usages'],
-    coding: ['apply_patch', 'create_file', 'create_directory', 'replace_string_in_file', 'edit_notebook_file', 'rename'],
-    validation: ['run_in_terminal', 'get_terminal_output', 'terminal', 'get_errors', 'test', 'playwright', 'screenshot', 'click', 'navigate', 'open_browser', 'run_task', 'task_output']
+    planning: ['ask_user', 'exit_plan_mode', 'todo'],
+    research: ['view', 'rg', 'grep', 'glob', 'fetch', 'search', 'lsp'],
+    coding: ['edit', 'create', 'apply_patch', 'str_replace'],
+    validation: ['powershell', 'bash', 'shell', 'test', 'tests', 'playwright', 'browser', 'screenshot']
   },
   scenarios: {
     pessimistic: {

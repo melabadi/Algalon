@@ -1,7 +1,7 @@
 # Evolution of the OTel-Based GitHub Copilot ROI Formula
 
-**Status:** 31 August 2026<br>
-**Scope:** Central aggregation of local GitHub Copilot sessions measured through OpenTelemetry  
+**Status:** 29 October 2026<br>
+**Scope:** Central aggregation of local GitHub Copilot runtime sessions measured through OpenTelemetry<br>
 **Current claim:** Modeled return on AI usage cost, not causal business ROI  
 **Formula version:** 2
 
@@ -24,7 +24,7 @@ The answer evolved through several formulas. Each iteration removed a source of 
 9. Central all-repository session aggregation with retained source unavailable by default.
 10. Gap-bounded engaged time, reasoning tokens removed from the review term, corrected tool classification, a bounded delivery-cost ratio, an explicit capacity band, and a formula version stamp.
 
-Later implementation changes moved live trace collection to a transactional SQLite inbox, strengthened retained-session migration and integrity checks, added named browser-local calibration sets, made the in-app Methodology dependency flow explicit, and added descriptive model-cohort comparisons. None changed the arithmetic, so the current formula remains version 2 rather than inventing an iteration 11 for transport or presentation work.
+Later implementation changes moved live trace collection to a transactional SQLite inbox, strengthened retained-session migration and integrity checks, added named browser-local calibration sets, made the in-app Methodology dependency flow explicit, added descriptive model-cohort comparisons, and moved capture to the shared GitHub Copilot runtime OTel contract emitted by Copilot CLI, Copilot SDK applications, the Copilot app, and the VS Code Copilot harness. None changed the arithmetic, so the current formula remains version 2 rather than inventing an iteration 11 for transport, evidence-source, or presentation work. [Copilot runtime capture](#copilot-runtime-capture) records what the runtime contract changed and why the equations did not.
 
 The latest formula asks one narrow question: **under an explicit scenario, how does the modeled realized value of saved labor compare with the observed cost of AI usage?** The worker persists three scenario branches: pessimistic, base, and optimistic. The UI's fourth **Custom** selector is not a fourth formula or published metric series. It resolves to one branch from a named browser-local calibration set and evaluates the same formula over retained session evidence.
 
@@ -43,7 +43,7 @@ ROI_s &= \frac{V_{net,s}}{C_{AI}}, \qquad C_{AI}>0
 \end{aligned}
 $$
 
-**Code correspondence:** phase totals, manual totals, savings, benefit, net value, and ROI are computed in [shared/benchmark.ts, lines 260-345](../shared/benchmark.ts#L260-L345); gap-bounded, overlap-safe phase allocation is computed in [src/phase-evidence.ts, lines 47-180](../src/phase-evidence.ts#L47-L180).
+**Code correspondence:** phase totals, manual totals, savings, benefit, net value, and ROI are computed in [shared/benchmark.ts, lines 260-345](../shared/benchmark.ts#L260-L345); gap-bounded, overlap-safe phase allocation is computed in [src/phase-evidence.ts, lines 48-190](../src/phase-evidence.ts#L48-L190).
 
 The detailed executable correspondence is documented in [Current formula](#current-formula). Historical iterations below link to retained legacy code only when it still computes the displayed equation; removed models are marked explicitly.
 
@@ -64,7 +64,7 @@ The formula does **not** claim that the modeled manual time actually occurred. I
 |---|---:|---|
 | $ROI_s$ | ratio | Modeled return on AI usage cost under scenario $s$; multiply by 100 for percent |
 | $B_s$ | dollars | Modeled realized labor benefit under scenario $s$ |
-| $C_{AI}$ | dollars | Locally observed direct-turn usage with OTel fallback: **$\sum nano\_aiu/10^{11}$**, equivalent to **$0.01 per AI credit** |
+| $C_{AI}$ | dollars | Locally observed Copilot runtime usage from deduplicated `chat` spans: **$\sum nano\_aiu/10^{11}$**, equivalent to **$0.01 per AI credit** |
 | $T_{saved,s}$ | minutes | Total modeled time saved under scenario $s$ |
 | $T_{manual,p,s}$ | minutes | Modeled equivalent manual time for phase $p$ under scenario $s$ |
 | $T_{AI,p}$ | minutes | Gap-bounded engaged time allocated to phase $p$ |
@@ -83,7 +83,7 @@ The strongest inputs are observed task duration, AI-credit usage value, and phas
 
 | Type | Inputs |
 |---|---|
-| Observed locally | Direct-turn AI credits and model/token totals when available; OTel session timestamps, phase/tool spans, span-activity union, runtime, and edit-survival signals. OTel usage is the fallback when no matching direct turn log exists. |
+| Observed locally | Copilot runtime OTel: AI credits and model/token totals from `chat` spans, session timestamps, phase/tool spans, span-activity union, runtime, client surface, and the explicit automated-session marker |
 | Derived from observation | Gap-bounded engaged time, activity density, uncached input tokens, and per-phase allocated time |
 | Deterministic local observation exported through OTel | Added/modified/removed source characters and lines only when an explicit source-aware producer matches the same session; unavailable in central Copilot OTel collection |
 | Configured assumptions | Loaded labor rate, capacity realization and its sensitivity band, idle-gap threshold, relevant-token fraction, planning/validation reasoning-token weight, review speed, interaction overhead, code-entry rate, manual-entry fraction |
@@ -97,7 +97,7 @@ A session with no eligible active spans produces no allocated phase time and no 
 
 Live evidence reaches the formula through a transactional local path. The loopback Collector removes disallowed content and sends privacy-scrubbed OTLP trace batches to FastAPI over the internal Docker network. FastAPI decomposes each batch into spans, commits them to the SQLite `otel_records` inbox, and deduplicates replay by authoritative span identity before the worker can consume them. The worker reads monotonically increasing cursor pages and checkpoints the cursor with accumulated session evidence. Event time remains evidence for session bounds; it is never used as an ingestion cutoff, so a late span can still update its original session.
 
-Matching VS Code direct-turn logs remain read-only local evidence used to refine complete credit, model, and token totals. If every matching log is not available, the whole session falls back to its complete OTel aggregate rather than mixing partial direct and OTel usage. Legacy scrubbed trace archives are streamed into the inbox once during upgrade, deduplicated against live spans, and guarded by a durable completion marker. Archive polling, rotation, and byte cursors are not part of normal collection.
+Only the shared Copilot runtime dialect is accepted: service `github-copilot` or instrumentation scope `github.copilot`, and only `invoke_agent`, `chat`, and `execute_tool` GenAI spans. FastAPI keys each span by the runtime's `gen_ai.conversation.id`; a span without one inherits the session of its parent span, and an unresolved span is dropped and counted rather than guessed. AI credits and tokens come only from `chat` spans: the runtime also stamps a cumulative `github.copilot.nano_aiu` on `invoke_agent` spans, so adding both would double-count, and a root agent total omits nested subagent calls. The first start after the runtime-capture upgrade backs up VS Code-era evidence inside the telemetry volume and starts empty; VS Code `copilot-chat` telemetry and direct-turn logs are no longer inputs. Archive polling, rotation, and byte cursors are not part of normal collection.
 
 This transport changes durability, replay behavior, and provenance checks; it does not promote any evidence class or change the benchmark arithmetic.
 
@@ -352,7 +352,7 @@ C_{AI} &= \frac{\sum nano\_aiu}{10^{11}}
 \end{aligned}
 $$
 
-**Code correspondence:** OTel fallback conversion is implemented at [src/experiment-evidence.ts, lines 218-231](../src/experiment-evidence.ts#L218-L231), and direct-turn conversion at [lines 384-398](../src/experiment-evidence.ts#L384-L398).
+**Code correspondence:** chat-span usage collection is implemented at [src/experiment-evidence.ts, lines 157-209](../src/experiment-evidence.ts#L157-L209), and the credit and dollar conversion at [lines 211-258](../src/experiment-evidence.ts#L211-L258). The Copilot runtime records the same atomic value as `github.copilot.nano_aiu`.
 
 **Where:**
 
@@ -472,7 +472,7 @@ T_{manual,p} &= \frac{T_{AI,p}}{1-s_p}
 \end{aligned}
 $$
 
-**Historical code correspondence:** the overlap-safe $T_{AI}=\sum_pT_{AI,p}$ identity survives at [src/phase-evidence.ts, lines 87-134](../src/phase-evidence.ts#L87-L134). No executable implementation of $T_{manual,p}=T_{AI,p}/(1-s_p)$ remains.
+**Historical code correspondence:** the overlap-safe $T_{AI}=\sum_pT_{AI,p}$ identity survives at [src/phase-evidence.ts, lines 134-160](../src/phase-evidence.ts#L134-L160). No executable implementation of $T_{manual,p}=T_{AI,p}/(1-s_p)$ remains.
 
 **Where:**
 
@@ -628,7 +628,7 @@ $$
 M_{coding,s}=\frac{f_sC_{retained\ delta}}{cw_s}
 $$
 
-**Code correspondence:** exact retained changes are calculated at [src/source-delta.ts, lines 156-212](../src/source-delta.ts#L156-L212), supplied to the benchmark at [src/continuous.ts, lines 181-202](../src/continuous.ts#L181-L202), and consumed at [shared/benchmark.ts, lines 233-234](../shared/benchmark.ts#L233-L234).
+**Code correspondence:** exact retained changes are calculated at [src/source-delta.ts, lines 156-212](../src/source-delta.ts#L156-L212), supplied to the benchmark at [src/continuous.ts, lines 311-318](../src/continuous.ts#L311-L318), and consumed at [shared/benchmark.ts, lines 233-234](../shared/benchmark.ts#L233-L234).
 
 **Where:**
 
@@ -692,7 +692,7 @@ T_{saved,s} &= \sum_pT_{saved,p,s}
 \end{aligned}
 $$
 
-**Code correspondence:** phase savings are computed without a quality multiplier at [shared/benchmark.ts, lines 243-255](../shared/benchmark.ts#L243-L255), and total savings at [lines 257-267](../shared/benchmark.ts#L257-L267). Strict experiment-window filtering is at [src/experiment-evidence.ts, lines 156-162](../src/experiment-evidence.ts#L156-L162).
+**Code correspondence:** phase savings are computed without a quality multiplier at [shared/benchmark.ts, lines 243-255](../shared/benchmark.ts#L243-L255), and total savings at [lines 257-267](../shared/benchmark.ts#L257-L267). Strict experiment-window filtering is at [src/experiment-evidence.ts, lines 290-309](../src/experiment-evidence.ts#L290-L309).
 
 **Where:**
 
@@ -738,13 +738,13 @@ The source-delta smoke experiment remained at 45.09% because its edit-survival r
 
 The local Collector already receives Copilot OTel from every repository using the configured VS Code instance. Mounting only the repository that contains the installer created a false attribution risk: a session from repository B could be paired with filesystem changes from repository A.
 
-The central worker now discovers every retained OTel `session.id`, keeps phase allocation and usage scoped to that ID, and reconciles exact direct-turn credits/model/tokens across every local conversation ID carried by the resource session. It uses direct usage only when the complete matching log set is available; otherwise it retains the complete OTel fallback. It does not mount or scan a repository. For each central session:
+The central worker now discovers every retained OTel `session.id`, keeps phase allocation and usage scoped to that ID, and does not mount or scan a repository. (Runtime capture later replaced that key with the runtime's `gen_ai.conversation.id`; see [Copilot runtime capture](#copilot-runtime-capture).) For each central session:
 
 $$
 C=0 \qquad source\_evidence\_complete=0
 $$
 
-**Code correspondence:** the central source record is `otel_only` with zero characters at [src/continuous.ts, lines 214-230](../src/continuous.ts#L214-L230), zero retained characters enter the benchmark at [lines 283-305](../src/continuous.ts#L283-L305), and completeness is emitted as `0` at [src/metrics.ts, lines 133-136](../src/metrics.ts#L133-L136).
+**Code correspondence:** the central source record is `otel_only` with zero characters at [src/continuous.ts, lines 349-364](../src/continuous.ts#L349-L364), zero retained characters enter the benchmark at [lines 405-413](../src/continuous.ts#L405-L413), and completeness is emitted as `0` at [src/metrics.ts, lines 143-144](../src/metrics.ts#L143-L144).
 
 The `evidence` label is `otel_only`. Planning, research, validation, and unclassified formulas still use their session-scoped evidence. Coding tool calls and tokens remain visible but cannot create coding benefit; measured coding time can still make coding savings negative.
 
@@ -752,7 +752,7 @@ The `evidence` label is `otel_only`. Planning, research, validation, and unclass
 
 - Aggregates all local repositories through one loopback Collector without registration.
 - Prevents telemetry from one repository from borrowing source evidence from another.
-- Preserves authoritative `session.id`, exact direct-turn usage, overlap-safe phase time, observed cost, and negative savings.
+- Preserves the authoritative session key, observed usage, overlap-safe phase time, observed cost, and negative savings.
 - Indexes zero-cost OTel sessions with `benchmark: null` rather than hiding them.
 
 ### Shortcomings
@@ -776,7 +776,7 @@ W_{engaged}=\mu\left(\bigcup_k B_k\right),\qquad
 B_k=\text{maximal activity block whose internal gaps are}\le G
 $$
 
-**Code correspondence:** [gap-bridging block accumulation](../src/phase-evidence.ts#L47-L68) and [the engaged allocation base](../src/phase-evidence.ts#L152-L160).
+**Code correspondence:** [gap-bridging block accumulation](../src/phase-evidence.ts#L48-L69) and [the engaged allocation base](../src/phase-evidence.ts#L162-L170).
 
 Elapsed time $W$ and activity density $\delta=A_{active}/W$ are still published as observed evidence, so nothing is hidden; only the base used to distribute phase time changed. This raises modeled savings for idle-heavy sessions because token-derived manual time is unchanged while $T_{AI}$ falls.
 
@@ -814,6 +814,61 @@ Two safeguards were added alongside these changes. A session with no eligible ac
 
 ---
 
+## Copilot runtime capture
+
+### Rationale
+
+Iterations 9 and 10 measured the VS Code Copilot Chat extension: its spans were keyed by OTel `session.id`, and local direct-turn logs refined credits and tokens. GitHub Copilot now runs agent work through a shared runtime used by Copilot CLI, Copilot SDK applications, the Copilot app, and the VS Code Copilot harness. That runtime emits one OTel dialect: service `github-copilot`, instrumentation scope `github.copilot`, and GenAI `invoke_agent`, `chat`, and `execute_tool` spans that carry `gen_ai.conversation.id`. Capturing only that dialect measures every runtime client through one evidence contract. Capturing the VS Code extension as well would count a Copilot-harness turn twice, because the extension wraps runtime spans in its own agent span.
+
+### What changed
+
+| Evidence | VS Code Copilot Chat capture | Copilot runtime capture |
+|---|---|---|
+| Accepted telemetry | `copilot-chat` extension spans | `github-copilot` service or `github.copilot` scope; only `invoke_agent`, `chat`, and `execute_tool` spans |
+| Session key | OTel `session.id`, refined by direct-turn conversation IDs | `gen_ai.conversation.id`; a span without one joins its parent span's session |
+| AI credits | Direct-turn credits, with chat-span `copilot_chat.copilot_usage_nano_aiu` as fallback | `github.copilot.nano_aiu` summed once over unique `chat` spans |
+| Reasoning tokens | `gen_ai.usage.reasoning_tokens` | `gen_ai.usage.reasoning.output_tokens`; absent means zero |
+| Phase tools | VS Code tool names matched by substring | Runtime tool names matched by whole token; delegation containers excluded |
+| Session mode | Not observed | Interactive unless every span carries `algalon.session.mode=automated` |
+
+### Formula and version impact
+
+The equations are unchanged, so `benchmarkFormulaVersion` and `CURRENT_FORMULA_VERSION` remain 2. Evidence derivation changed, so `SESSION_CALCULATION_VERSION` was incremented and retained sessions are rebuilt from runtime spans. Two eligibility rules decide what enters the unchanged formula.
+
+**Cost once.** AI usage cost sums `github.copilot.nano_aiu` over unique `chat` spans only:
+
+$$
+C_{AI}=\frac{1}{10^{11}}\sum_{k\in K_{chat}} nano\_aiu_k
+$$
+
+**Code correspondence:** chat-only collection is implemented at [src/experiment-evidence.ts, lines 157-209](../src/experiment-evidence.ts#L157-L209), conversion at [lines 211-258](../src/experiment-evidence.ts#L211-L258), and the automated-session gate at [src/continuous.ts, lines 403-406](../src/continuous.ts#L403-L406).
+
+Here $K_{chat}$ is the set of deduplicated runtime `chat` spans in the session. The runtime also stamps a cumulative `github.copilot.nano_aiu` on `invoke_agent` spans. Adding it would double-count, and a root agent total omits nested subagent calls. In a verification CLI session, chat spans summed to 7.047 AI credits, matching the 7.05 credits the CLI reported, while the root `invoke_agent` span reported 6.828 because it excluded a nested subagent's 0.219.
+
+**Automated sessions.** The formula values saved developer labor, and a scripted pipeline has no engaged developer whose time could be saved. A session in which every span carries `algalon.session.mode=automated` therefore keeps its observed usage, tokens, and time, but publishes `benchmark: null` with exclusion reason `automated_session` and stays out of modeled portfolio totals. Unmarked sessions are treated as interactive because the runtime emits no reliable automation signal.
+
+### Fresh start
+
+VS Code-era evidence is not comparable with runtime evidence: the session keys, cost sources, and tool names differ. The first start after the upgrade therefore backs up the old database, retained session artifacts, and trace archives inside the telemetry volume under `/data/backups/vscode-legacy-<UTC timestamp>/`, verifies the database copy, clears the old evidence, and records a completion marker. Runtime sessions start from an empty store, and legacy sessions are never re-scored under runtime rules.
+
+### What it does well
+
+- Measures Copilot CLI, Copilot SDK applications, the Copilot app, and the VS Code Copilot harness through one evidence contract.
+- Counts each runtime turn once, even when VS Code extension telemetry also wraps a Copilot-harness turn.
+- Ties AI cost to the model calls that incurred it, including nested subagent calls.
+- Keeps a resumed runtime session together because its conversation ID survives resume.
+- Prevents explicitly automated pipelines from being presented as saved developer labor.
+
+### Shortcomings
+
+- Automation is opt-in, so an unmarked SDK pipeline is modeled as interactive work.
+- Client surface is inferred: VS Code harness telemetry is recognized by its agent-host namespace, and an unmarked SDK application reports as `cli`.
+- VS Code sessions that use the local agent harness rather than the Copilot harness are no longer measured.
+- A span that lacks a conversation ID and whose parent span was never seen is dropped and counted rather than attributed.
+- The runtime emits no edit-survival or accepted-edit signal.
+
+---
+
 ## Current formula
 
 ### The calculation, step by step
@@ -844,18 +899,18 @@ $$
 
 | Documented expression or rule | Owning implementation |
 |---|---|
-| $W_{engaged}$ gap-bounded activity base | [src/phase-evidence.ts, lines 47-68](../src/phase-evidence.ts#L47-L68) |
-| $T_{AI}=\sum_pT_{AI,p}$ and overlap-safe $T_{AI,p}$ allocation | [src/phase-evidence.ts, lines 140-180](../src/phase-evidence.ts#L140-L180) |
+| $W_{engaged}$ gap-bounded activity base | [src/phase-evidence.ts, lines 48-71](../src/phase-evidence.ts#L48-L71) |
+| $T_{AI}=\sum_pT_{AI,p}$ and overlap-safe $T_{AI,p}$ allocation | [src/phase-evidence.ts, lines 134-190](../src/phase-evidence.ts#L134-L190) |
 | The five $T_{manual,p,s}$ equations | [shared/benchmark.ts, lines 124-135](../shared/benchmark.ts#L124-L135) and [lines 265-287](../shared/benchmark.ts#L265-L287) |
 | Phase savings $T_{manual,p,s}-T_{AI,p}$ | [shared/benchmark.ts, lines 288-301](../shared/benchmark.ts#L288-L301) |
 | Total manual time, savings, labor costs, benefit, and net value | [shared/benchmark.ts, lines 302-312](../shared/benchmark.ts#L302-L312) |
 | Capacity sensitivity band at $\rho\in\{0.25,0.50,0.75\}$ | [shared/benchmark.ts, lines 313-324](../shared/benchmark.ts#L313-L324) |
 | $R_s$, $ROI_s=V_{net,s}/C_{AI}$, and the $C_{AI}=0$ guard | [shared/benchmark.ts, lines 325-345](../shared/benchmark.ts#L325-L345) |
 | `formulaVersion` stamp | [shared/benchmark.ts, lines 346-357](../shared/benchmark.ts#L346-L357) |
-| $C_{AI}=\sum nano\_aiu/10^{11}$ from OTel fallback | [src/experiment-evidence.ts, lines 195-215](../src/experiment-evidence.ts#L195-L215) |
-| Evidence-sufficiency gate before any benchmark runs | [src/continuous.ts, lines 107-112](../src/continuous.ts#L107-L112) |
-| Central collection's $C=0$ input | [src/continuous.ts, lines 310-320](../src/continuous.ts#L310-L320) |
-| Matched source-aware $C=charactersAdded$ input | [src/continuous.ts, lines 219-228](../src/continuous.ts#L219-L228) |
+| $C_{AI}=\sum nano\_aiu/10^{11}$ from deduplicated runtime `chat` spans | [src/experiment-evidence.ts, lines 157-258](../src/experiment-evidence.ts#L157-L258) |
+| Evidence-sufficiency and automated-session gates before any benchmark runs | [src/continuous.ts, lines 199-202](../src/continuous.ts#L199-L202) and [lines 403-406](../src/continuous.ts#L403-L406) |
+| Central collection's $C=0$ input | [src/continuous.ts, lines 407-413](../src/continuous.ts#L407-L413) |
+| Matched source-aware $C=charactersAdded$ input | [src/continuous.ts, lines 311-318](../src/continuous.ts#L311-L318) |
 
 These links identify the statements that execute the equations, rather than nearby type declarations or metric publication code.
 
@@ -880,7 +935,7 @@ These links identify the statements that execute the equations, rather than near
 | $\Delta C_{gross,s}$ | dollars | Gross delivery-cost difference before capacity realization |
 | $R_s$ | ratio | Modeled delivery-cost reduction; bounded above by 1 and independent of model price |
 | $B_s$ | dollars | Modeled realized labor benefit under scenario $s$ |
-| $C_{AI}$ | dollars | Locally observed usage from exact VS Code direct turns, with OTel trace fallback: **$\sum nano\_aiu/10^9=$ credits**, then **credits$/100=$ dollars**; equivalently **$\sum nano\_aiu/10^{11}$** |
+| $C_{AI}$ | dollars | Locally observed Copilot runtime usage from deduplicated `chat` spans: **$\sum nano\_aiu/10^9=$ credits**, then **credits$/100=$ dollars**; equivalently **$\sum nano\_aiu/10^{11}$** |
 | $V_{net,s}$ | dollars | Modeled realized net value: $B_s-C_{AI}$ |
 | $ROI_s$ | ratio | Net modeled return divided by AI usage value; multiply by 100 for percent |
 
@@ -935,7 +990,7 @@ $$
 C=0 \quad\Longrightarrow\quad T_{manual,coding,s}=0
 $$
 
-**Code correspondence:** [the central worker supplies zero retained source](../src/continuous.ts#L310-L320), and [the coding equation consumes that value directly](../shared/benchmark.ts#L276-L278).
+**Code correspondence:** [the central worker supplies zero retained source](../src/continuous.ts#L407-L413), and [the coding equation consumes that value directly](../shared/benchmark.ts#L276-L278).
 
 If the session contains measured coding time, its coding-phase saving is consequently $-T_{AI,coding}$. Coding tool calls and coding tokens remain visible as evidence but do not create coding benefit. This conservative result is deliberate: one repository's source must never be borrowed for another repository's session.
 
@@ -1055,7 +1110,7 @@ $T_{AI,p}$ is not the sum of raw span durations, and it is no longer the full el
 
 ### 1. Define the session window
 
-The latest central path groups spans by authoritative OTel `session.id`. For one session, $t_0$ is the earliest valid span start and $t_1$ is the latest valid span end. As later spans arrive for that same session, the worker recalculates through the new $t_1$ and replaces the session's previous published value; the portfolio keeps only that latest value.
+The latest central path groups spans by the Copilot runtime's authoritative `gen_ai.conversation.id`, which ingestion stamps on each accepted span as the Algalon session key. For one session, $t_0$ is the earliest valid span start and $t_1$ is the latest valid span end. A resumed runtime session keeps the same ID, so its later turns extend the same session. As later spans arrive for that same session, the worker recalculates through the new $t_1$ and replaces the session's previous published value; the portfolio keeps only that latest value.
 
 The separate source-aware experiment path instead records $t_0$ immediately before work and $t_1$ immediately after work. In that path, only spans that both start and finish inside the explicit markers are eligible. This excludes work outside the task and the completion command itself.
 
@@ -1067,13 +1122,13 @@ Tool spans are classified by configured name patterns:
 
 | Phase | Current matching examples |
 |---|---|
-| Planning | `manage_todo_list`, `todo`, `ask_questions`, `questions` |
-| Research | `search`, `read`, `fetch`, `grep`, `semantic`, `reference`, `documentation`, `list_dir`, `view_image`, `tool_search`, `usages` |
-| Coding | `apply_patch`, `create_file`, `create_directory`, `replace_string_in_file`, `edit_notebook_file`, `rename` |
-| Validation | `run_in_terminal`, `get_terminal_output`, `terminal`, `get_errors`, `test`, `playwright`, `screenshot`, `click`, `navigate`, `open_browser`, `run_task`, `task_output` |
+| Planning | `ask_user`, `exit_plan_mode`, `todo` |
+| Research | `view`, `rg`, `grep`, `glob`, `fetch`, `search`, `lsp` |
+| Coding | `edit`, `create`, `apply_patch`, `str_replace` |
+| Validation | `powershell`, `bash`, `shell`, `test`, `tests`, `playwright`, `browser`, `screenshot` |
 | Unclassified | No configured pattern matched |
 
-Tool names are normalized and matched by substring. Normalization lowercases and collapses non-alphanumeric runs to a single underscore, so a pattern must survive that transformation to match: `rename_symbol` does **not** match `vscode_renameSymbol`, whereas `rename` does. Iteration 10 corrected several patterns that silently failed this test. If one name matches multiple phases, the hard-coded precedence is **planning, research, coding, validation**.
+Tool names and patterns are split into lowercase identifier tokens at non-alphanumeric characters and camel-case boundaries, and a pattern matches only a contiguous run of whole tokens: `fetch` matches `web_fetch`, but `rg` never matches `merge_pull_request`. Runtime shell spans are named like `execute_tool powershell pwsh.exe`, so when `gen_ai.tool.name` is absent the tool is the first token after `execute_tool`. Delegation and wait tools (`task`, `read_agent`, `write_agent`, `list_agents`) contribute neither phase time nor tool calls, because the nested subagent's own spans already carry that work. Iteration 10 corrected several substring patterns that silently failed; runtime capture replaced substring matching with whole-token matching so short runtime names such as `rg` and `view` cannot match unrelated tools. If one name matches multiple phases, the hard-coded precedence is **planning, research, coding, validation**.
 
 Each cost-bearing chat/model span inherits the phase of the first nearby tool it appears to prepare. The tool must start from 0.25 seconds before to 3 seconds after the chat span ends. If no such tool exists, the chat span is unclassified. The chat span's tokens inherit the same phase.
 
@@ -1081,7 +1136,7 @@ The hard-coded attribution rules are:
 
 | Rule | Hard-coded value |
 |---|---|
-| Cost-bearing chat-span threshold | `copilot_usage_nano_aiu > 0` |
+| Cost-bearing chat-span threshold | `github.copilot.nano_aiu > 0` |
 | Earliest associated tool start | **0.25 seconds (250 ms) before** chat-span end |
 | Latest associated tool start | **3.00 seconds (3000 ms) after** chat-span end |
 | Multiple tools in the association window | First tool by start time |
@@ -1105,7 +1160,7 @@ T_{AI,p} &= \frac{W_{engaged}}{60}\frac{a_p}{A_{\mathrm{active}}}
 \end{aligned}
 $$
 
-**Code correspondence:** [segment boundaries, distinct active phases, and equal overlap splitting](../src/phase-evidence.ts#L128-L151), then [engaged base and allocation](../src/phase-evidence.ts#L152-L180).
+**Code correspondence:** [segment boundaries, distinct active phases, and equal overlap splitting](../src/phase-evidence.ts#L134-L160), then [engaged base and allocation](../src/phase-evidence.ts#L162-L190).
 
 **Where:**
 
@@ -1134,7 +1189,7 @@ $$
 \sum_p T_{AI,p}=\frac{W_{engaged}}{60}\le\frac{W}{60}
 $$
 
-**Code correspondence:** every allocated phase uses the same engaged numerator and normalized active share at [src/phase-evidence.ts, lines 152-180](../src/phase-evidence.ts#L152-L180); reconciliation is asserted at [test/experiment-evidence.test.ts, lines 195-230](../test/experiment-evidence.test.ts#L195-L230).
+**Code correspondence:** every allocated phase uses the same engaged numerator and normalized active share at [src/phase-evidence.ts, lines 162-190](../src/phase-evidence.ts#L162-L190); reconciliation is asserted at [test/experiment-evidence.test.ts, lines 188-232](../test/experiment-evidence.test.ts#L188-L232).
 
 **Where:**
 
@@ -1270,7 +1325,7 @@ ROI_s &= \frac{B_s-C_{AI}}{C_{AI}}
 \end{aligned}
 $$
 
-**Code correspondence:** scenario benefit, delivery-cost reduction, net value, and ROI are computed at [shared/benchmark.ts, lines 310-345](../shared/benchmark.ts#L310-L345); nano-AIU conversion is implemented at [src/experiment-evidence.ts, lines 195-215](../src/experiment-evidence.ts#L195-L215).
+**Code correspondence:** scenario benefit, delivery-cost reduction, net value, and ROI are computed at [shared/benchmark.ts, lines 310-345](../shared/benchmark.ts#L310-L345); nano-AIU conversion is implemented at [src/experiment-evidence.ts, lines 211-258](../src/experiment-evidence.ts#L211-L258).
 
 **Where:**
 
@@ -1323,7 +1378,7 @@ T_{AI,unclassified} &= \frac{21.178}{60}\frac{2.165}{14.331}=0.053323\text{ min}
 \end{aligned}
 $$
 
-**Code correspondence:** the general allocation is implemented at [src/phase-evidence.ts, lines 128-180](../src/phase-evidence.ts#L128-L180), and these exact displayed inputs are exercised at [test/benchmark.test.ts, lines 82-146](../test/benchmark.test.ts#L82-L146).
+**Code correspondence:** the general allocation is implemented at [src/phase-evidence.ts, lines 134-190](../src/phase-evidence.ts#L134-L190), and these exact displayed inputs are exercised at [test/benchmark.test.ts, lines 82-146](../test/benchmark.test.ts#L82-L146).
 
 **Where:**
 
@@ -1540,10 +1595,11 @@ The last two rows use identical session evidence. Only the arithmetic changed. R
 
 ### Supported claims
 
-- AI-assisted engaged time is measured for each authoritative local OTel session across repositories, with elapsed time and activity density published beside it.
+- AI-assisted engaged time is measured for each authoritative local Copilot runtime session across repositories and runtime clients, with elapsed time and activity density published beside it.
 - Privacy-scrubbed spans are committed transactionally and deduplicated before worker processing; late event time does not exclude evidence.
 - Phase allocations reconcile to that engaged time without overlap.
-- AI-credit usage value is observed from matching direct turns when available, with unique OTel chat spans as fallback.
+- AI-credit usage value is observed once per unique runtime `chat` span; cumulative `invoke_agent` totals are never added.
+- Sessions explicitly marked as automated keep observed usage but produce no modeled value.
 - Central sessions never borrow retained source from the installation repository; source-unavailable coding benefit is zero.
 - When explicitly matched source evidence exists, its delta is deterministic, aggregate-only, exported through OTel, and read back from VictoriaMetrics.
 - Planning, research, coding, validation, and unclassified work all contribute through explicit formulas.
@@ -1565,13 +1621,14 @@ The last two rows use identical session evidence. Only the arithmetic changed. R
 - That a saved Custom calibration set is empirically valid merely because it can be applied to retained data.
 - That one experiment establishes causal productivity improvement.
 - That a central OTel session identifies its repository or proves retained source.
+- That an unmarked session had an engaged developer, or that an inferred client surface is exact.
 - That a difference between model-cohort medians was caused by a model or attributes any mixed session's value to one model.
 
 ## Recommended presentation language
 
 Use:
 
-> The dashboard reports modeled net value, break-even manual time, and a bounded delivery-cost reduction, with return on AI credit spend as a secondary ratio. Session-scoped OTel measures gap-bounded engaged time and phase evidence; matching local turns refine AI-credit and token totals. Retained source is unavailable in central collection, so coding benefit is zero. Manual equivalent time is estimated under explicit pessimistic, base, and optimistic presets or a named browser-local Custom sensitivity set. Custom selection does not change observed evidence or published worker metrics.
+> The dashboard reports modeled net value, break-even manual time, and a bounded delivery-cost reduction, with return on AI credit spend as a secondary ratio. Session-scoped Copilot runtime OTel measures gap-bounded engaged time, phase evidence, AI credits, and tokens. Sessions explicitly marked as automated keep observed usage but receive no modeled value. Retained source is unavailable in central collection, so coding benefit is zero. Manual equivalent time is estimated under explicit pessimistic, base, and optimistic presets or a named browser-local Custom sensitivity set. Custom selection does not change observed evidence or published worker metrics.
 
 Avoid:
 
@@ -1599,13 +1656,13 @@ The paired benchmark is the most important next step: it replaces the weakest mo
 - Formula version stamp: [shared/benchmark.ts, lines 8-11](../shared/benchmark.ts#L8-L11) and the read-model guard in [backend/app/store.py](../backend/app/store.py)
 - Transactional OTLP ingestion, replay deduplication, and cursor reads: [backend/app/main.py](../backend/app/main.py), [backend/app/store.py](../backend/app/store.py), and [src/incremental-evidence.ts](../src/incremental-evidence.ts)
 - Session recalculation and retained-evidence migration: [src/continuous.ts](../src/continuous.ts) and [src/continuous-cli.ts](../src/continuous-cli.ts)
-- Phase classification, gap bounding, and overlap handling: [src/phase-evidence.ts, lines 39-68](../src/phase-evidence.ts#L39-L68) and [lines 86-180](../src/phase-evidence.ts#L86-L180)
-- OTel and direct-turn usage aggregation: [src/experiment-evidence.ts, lines 175-215](../src/experiment-evidence.ts#L175-L215) and [src/direct-turns.ts, lines 60-160](../src/direct-turns.ts#L60-L160)
+- Phase classification, gap bounding, and overlap handling: [src/phase-evidence.ts, lines 39-71](../src/phase-evidence.ts#L39-L71) and [lines 73-190](../src/phase-evidence.ts#L73-L190)
+- Runtime span contract and chat-span usage aggregation: [src/runtime-telemetry.ts](../src/runtime-telemetry.ts), [backend/app/runtime_telemetry.py](../backend/app/runtime_telemetry.py), and [src/experiment-evidence.ts, lines 157-258](../src/experiment-evidence.ts#L157-L258)
 - Retained source delta and OTLP payload: [src/source-delta.ts, lines 119-254](../src/source-delta.ts#L119-L254)
-- Central session evaluation and evidence gate: [src/continuous.ts, lines 86-115](../src/continuous.ts#L86-L115) and [lines 300-330](../src/continuous.ts#L300-L330)
+- Central session evaluation, evidence gate, and automated-session exclusion: [src/continuous.ts, lines 82-115](../src/continuous.ts#L82-L115) and [lines 390-434](../src/continuous.ts#L390-L434)
 - Custom sensitivity evaluation and portfolio aggregation: [web/src/features/calibration/model.ts, lines 60-175](../web/src/features/calibration/model.ts#L60-L175)
 - In-app Methodology flow and descriptive model cohorts: [web/src/features/methodology/MethodologyView.tsx](../web/src/features/methodology/MethodologyView.tsx) and [web/src/features/sessions/SessionViews.tsx](../web/src/features/sessions/SessionViews.tsx)
 - Explicit calibration variables: [config/value-model.example.json](../config/value-model.example.json)
 - Grafana presentation: [personal-copilot-value.json](../config/grafana/dashboards/personal-copilot-value.json)
-- Formula and evidence tests: [test/benchmark.test.ts, lines 12-80](../test/benchmark.test.ts#L12-L80), [test/experiment-evidence.test.ts, lines 126-232](../test/experiment-evidence.test.ts#L126-L232), and [test/source-delta.test.ts, lines 16-99](../test/source-delta.test.ts#L16-L99)
+- Formula and evidence tests: [test/benchmark.test.ts, lines 12-80](../test/benchmark.test.ts#L12-L80), [test/experiment-evidence.test.ts, lines 96-279](../test/experiment-evidence.test.ts#L96-L279), [test/runtime-telemetry.test.ts](../test/runtime-telemetry.test.ts), and [test/source-delta.test.ts, lines 16-99](../test/source-delta.test.ts#L16-L99)
 - Local ignored experiment artifacts: `data/value/experiments` (generated at runtime; not checked in)

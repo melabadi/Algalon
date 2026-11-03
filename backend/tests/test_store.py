@@ -8,7 +8,6 @@ import unittest
 from unittest.mock import patch
 
 from backend.app.indexing import enqueue_session
-from backend.app.prompt_index import group_prompts
 from backend.app.store import (
     CURRENT_FORMULA_VERSION,
     INSIGHTS_SESSION_QUERY,
@@ -26,10 +25,14 @@ from backend.app.store import (
     _valid_modeled_timing,
     _validated_current_benchmark,
 )
-
-
-def attribute(key: str, value: str, value_type: str = "stringValue") -> dict:
-    return {"key": key, "value": {value_type: str(value)}}
+from backend.app.trace_archive import collect_trace_sessions_from_records
+from backend.tests.runtime_otlp import (
+    agent_span,
+    attribute,
+    chat_span,
+    runtime_payload,
+    tool_span,
+)
 
 
 def complete_scenario(**overrides: object) -> dict[str, object]:
@@ -247,23 +250,13 @@ class ValueStoreTests(unittest.TestCase):
             store = ValueStore(
                 root / "value.db", root / "sessions", root / "traces.json", config
             )
-            span = {
-                "traceId": "trace-a",
-                "spanId": "span-a",
-                "name": "chat model-a",
-                "startTimeUnixNano": "1785924000000000000",
-                "endTimeUnixNano": "1785924001000000000",
-                "attributes": [],
-            }
-            payload = {
-                "resourceSpans": [{
-                    "resource": {"attributes": [
-                        attribute("service.name", "copilot-chat"),
-                        attribute("session.id", "session-a"),
-                    ]},
-                    "scopeSpans": [{"spans": [span]}],
-                }],
-            }
+            payload = runtime_payload([chat_span(
+                trace_id="trace-a",
+                span_id="span-a",
+                conversation="session-a",
+                start_ns=1785924000000000000,
+                end_ns=1785924001000000000,
+            )])
 
             first = store.ingest_otlp_traces(payload)
             replay_payload = json.loads(json.dumps(payload))
@@ -273,72 +266,16 @@ class ValueStoreTests(unittest.TestCase):
             replay = store.ingest_otlp_traces(replay_payload)
             page = store.otel_records()
 
-            self.assertEqual(first, {"received": 1, "accepted": 1})
-            self.assertEqual(replay, {"received": 1, "accepted": 0})
+            self.assertEqual(first, {"received": 1, "accepted": 1, "dropped": 0})
+            self.assertEqual(replay, {"received": 1, "accepted": 0, "dropped": 0})
             self.assertEqual(len(page["records"]), 1)
             self.assertGreater(page["nextCursor"], 0)
             self.assertFalse(page["hasMore"])
             self.assertEqual(store.otel_records(page["nextCursor"])["records"], [])
-            trace_sessions, signature = store._stable_trace_sessions()
-            self.assertEqual(signature, ("inbox", page["nextCursor"]))
+            trace_sessions = collect_trace_sessions_from_records(page["records"])
+            self.assertEqual(list(trace_sessions), ["session-a"])
             self.assertEqual(len(trace_sessions["session-a"]["spans"]), 1)
-
-    def test_legacy_trace_archives_import_into_inbox_once(self) -> None:
-        with tempfile.TemporaryDirectory() as temporary_directory:
-            root = Path(temporary_directory)
-            config = root / "value-model.local.json"
-            config.write_text("{}\n", encoding="utf-8")
-            trace_archive = root / "traces.json"
-            span = {
-                "traceId": "trace-a",
-                "spanId": "span-a",
-                "name": "chat model-a",
-                "startTimeUnixNano": "1785924000000000000",
-                "endTimeUnixNano": "1785924001000000000",
-                "attributes": [],
-            }
-            payload = {
-                "resourceSpans": [{
-                    "resource": {"attributes": [
-                        attribute("service.name", "copilot-chat"),
-                        attribute("session.id", "session-a"),
-                    ]},
-                    "scopeSpans": [{"spans": [span]}],
-                }],
-            }
-            rotated = root / "traces-rotated.json"
-            rotated.write_text(json.dumps(payload) + "\n", encoding="utf-8")
-            trace_archive.write_text(json.dumps(payload) + "\n", encoding="utf-8")
-            store = ValueStore(
-                root / "value.db", root / "sessions", trace_archive, config
-            )
-
-            store.index_once()
-            first_page = store.otel_records()
-            trace_archive.write_text(
-                trace_archive.read_text(encoding="utf-8")
-                + json.dumps({
-                    "resourceSpans": [{
-                        "resource": {"attributes": [
-                            attribute("service.name", "copilot-chat"),
-                            attribute("session.id", "session-b"),
-                        ]},
-                        "scopeSpans": [{"spans": [{
-                            **span, "traceId": "trace-b", "spanId": "span-b",
-                        }]}],
-                    }],
-                }) + "\n",
-                encoding="utf-8",
-            )
-            store.index_once()
-
-            self.assertEqual(len(first_page["records"]), 1)
-            self.assertEqual(len(store.otel_records()["records"]), 1)
-            with closing(store._connect()) as connection:
-                self.assertIsNotNone(connection.execute(
-                    "SELECT value FROM store_metadata WHERE key = ?",
-                    ("legacy_trace_inbox_import_v1",),
-                ).fetchone())
+            self.assertEqual(trace_sessions["session-a"]["spans"][0]["name"], "chat model-a")
 
     def test_explicit_zero_engagement_does_not_fall_back_to_duration(self) -> None:
         self.assertEqual(_engaged_seconds({
@@ -529,17 +466,10 @@ class ValueStoreTests(unittest.TestCase):
                 "ai_credits": 1,
                 "usage_source": "otel_trace",
             }
-            store.ingest_otlp_traces({"resourceSpans": [{
-                "resource": {"attributes": [
-                    attribute("service.name", "copilot-chat"),
-                    attribute("session.id", raw_session_id),
-                ]},
-                "scopeSpans": [{"spans": [{
-                    "spanId": "counter-span", "traceId": "counter-trace",
-                    "name": "chat model-a", "startTimeUnixNano": str(started_ms * 1_000_000),
-                    "attributes": [],
-                }]}],
-            }]})
+            store.ingest_otlp_traces(runtime_payload([chat_span(
+                trace_id="counter-trace", span_id="counter-span",
+                conversation=raw_session_id, start_ns=started_ms * 1_000_000,
+            )]))
             with patch("backend.app.store.group_prompts", return_value=[group]):
                 store.index_once()
 
@@ -1411,117 +1341,6 @@ class ValueStoreTests(unittest.TestCase):
             exported_sessions, _ = store.export_data()
             json.dumps(exported_sessions, allow_nan=False)
 
-    def test_initialization_removes_fallback_groups_from_exact_sessions(self) -> None:
-        with tempfile.TemporaryDirectory() as temporary_directory:
-            root = Path(temporary_directory)
-            sessions = root / "sessions"
-            sessions.mkdir()
-            config_path = root / "value-model.local.json"
-            config_path.write_text("{}\n", encoding="utf-8")
-            database_path = root / "value.db"
-            store = ValueStore(database_path, sessions, root / "traces.json", config_path)
-            timestamp = datetime.now(timezone.utc).isoformat()
-            with closing(store._connect()) as connection:
-                connection.execute(
-                    """
-                    INSERT INTO sessions VALUES (
-                        ?, ?, ?, 'published', 1, 0, 0, 1, 1, 0, 1, 1, 0, 0, 0,
-                        '{"source":"copilot_turn_log"}', '{}', NULL, ?
-                    )
-                    """,
-                    ("session", timestamp, timestamp, timestamp),
-                )
-                for ordinal, source in enumerate(("copilot_turn_log", "otel_trace"), start=1):
-                    connection.execute(
-                        """
-                        INSERT INTO prompts VALUES (
-                            ?, 'session', ?, ?, '', 0, 1, 0, 1, 0, 1, 0, 0, '{}', 0, ?
-                        )
-                        """,
-                        (f"prompt-{ordinal}", ordinal, timestamp, source),
-                    )
-                connection.commit()
-            self.assertEqual(len(store.prompts("session")), 2)
-
-            migrated = ValueStore(database_path, sessions, root / "traces.json", config_path)
-
-            prompts = migrated.prompts("session")
-            self.assertEqual(len(prompts), 1)
-            self.assertEqual(prompts[0]["usageSource"], "copilot_turn_log")
-
-            artifact = {
-                "experiment": "session",
-                "startedAt": timestamp,
-                "completedAt": timestamp,
-                "status": "published",
-                "usage": {"source": "otel_traces"},
-                "source": {},
-                "benchmark": None,
-            }
-            (sessions / "session-updated.json").write_text(
-                json.dumps(artifact), encoding="utf-8"
-            )
-            migrated.index_once()
-            self.assertEqual(migrated.prompts("session"), [])
-
-    def test_exact_turns_are_authoritative_for_the_resource_session(self) -> None:
-        trace_session = {
-            "spans": [
-                {
-                    "_started": 1_000,
-                    "traceId": "first-trace",
-                    "name": "chat model-a",
-                    "attributes": [
-                        attribute("copilot_chat.user_request", "Internal OTel request"),
-                        attribute("gen_ai.conversation.id", "conversation"),
-                        attribute("gen_ai.usage.output_tokens", 10, "intValue"),
-                    ],
-                },
-                {
-                    "_started": 2_000,
-                    "traceId": "continuation-trace",
-                    "name": "chat model-a",
-                    "attributes": [
-                        attribute("copilot_chat.user_request", "Different internal continuation"),
-                        attribute("gen_ai.conversation.id", "conversation"),
-                        attribute("gen_ai.usage.output_tokens", 20, "intValue"),
-                    ],
-                },
-                {
-                    "_started": 3_000,
-                    "traceId": "other-conversation-trace",
-                    "name": "chat model-a",
-                    "attributes": [
-                        attribute("copilot_chat.user_request", "One visible prompt"),
-                        attribute("gen_ai.conversation.id", "other-conversation"),
-                        attribute("gen_ai.usage.output_tokens", 40, "intValue"),
-                    ],
-                },
-            ],
-        }
-        direct_turns = [{
-            "conversation_id": "conversation",
-            "started_at": "2026-08-21T12:00:00+00:00",
-            "content": "One visible prompt",
-            "captured_content_length": 18,
-            "model_requests": 2,
-            "tool_calls": 0,
-            "input_tokens": 100,
-            "cache_read_tokens": 50,
-            "output_tokens": 30,
-            "reasoning_tokens": 0,
-            "ai_credits": 1.0,
-            "ai_cost_usd": 0.01,
-            "models": {"model-a": 2},
-            "usage_source": "copilot_turn_log",
-        }]
-
-        groups = group_prompts(trace_session, direct_turns, content_enabled=False)
-
-        self.assertEqual(len(groups), 1)
-        exact = next(group for group in groups if group["usage_source"] == "copilot_turn_log")
-        self.assertEqual(exact["model_requests"], 2)
-
     def test_extracts_user_visible_prompt_content(self) -> None:
         attachment_payload = json.dumps([
             {"type": "input_text", "text": "Review this screenshot"},
@@ -1661,6 +1480,158 @@ class ValueStoreTests(unittest.TestCase):
             self.assertEqual(totals["supersededFormulaSessions"], 0)
             self.assertEqual(store.overview("base", 30)["modelingStatus"], "available")
 
+    def test_overview_excludes_automated_sessions_from_the_modeled_portfolio(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            root = Path(temporary_directory)
+            sessions = root / "sessions"
+            sessions.mkdir()
+            config_path = root / "value-model.local.json"
+            config_path.write_text(json.dumps(model_config(60, {
+                name: scenario_config(unclassified_multiplier=2) for name in SCENARIOS
+            })), encoding="utf-8")
+            started = datetime.now(timezone.utc).replace(microsecond=0) - timedelta(hours=1)
+
+            def artifact(experiment: str, offset_minutes: int, ai_cost: float, **fields: object) -> dict:
+                started_at = started + timedelta(minutes=offset_minutes)
+                result = complete_scenario(
+                    estimatedManualMinutes=60,
+                    estimatedMinutesSaved=30,
+                    estimatedManualLaborCostUsd=60,
+                    estimatedAiAssistedLaborCostUsd=30,
+                    estimatedAiAssistedTotalCostUsd=30 + ai_cost,
+                    estimatedGrossCostSavingsUsd=30 - ai_cost,
+                    estimatedBenefitUsd=15,
+                    netValueUsd=15 - ai_cost,
+                )
+                return {
+                    "experiment": experiment,
+                    "startedAt": started_at.isoformat().replace("+00:00", "Z"),
+                    "completedAt": (started_at + timedelta(minutes=30)).isoformat().replace("+00:00", "Z"),
+                    "status": "published",
+                    "usage": complete_usage(1_800, 1_800, ai_cost),
+                    "source": {"source": "otel_only", "charactersAdded": 0},
+                    "benchmark": complete_benchmark({name: result for name in SCENARIOS}),
+                    **fields,
+                }
+
+            artifacts = (
+                artifact("session-interactive", 0, 1, surface="cli", sessionMode="interactive"),
+                artifact(
+                    "session-automated", 15, 4, surface="sdk", sessionMode="automated",
+                    exclusionReason="automated_session",
+                ),
+            )
+            for value in artifacts:
+                (sessions / f"{value['experiment']}.json").write_text(json.dumps(value), encoding="utf-8")
+            store = ValueStore(root / "value.db", sessions, root / "traces.json", config_path)
+            store.index_once()
+
+            overview = store.overview("base", 30)
+            totals = overview["totals"]
+
+            self.assertEqual(overview["modelingStatus"], "available")
+            self.assertEqual(
+                {session["experiment"]: session["sessionMode"] for session in overview["sessions"]},
+                {"session-interactive": "interactive", "session-automated": "automated"},
+            )
+            self.assertEqual(totals["sessions"], 1)
+            self.assertEqual(totals["aiCostUsd"], 1)
+            self.assertEqual(totals["durationSeconds"], 30 * 60)
+            self.assertEqual(totals["automatedSessions"], 1)
+            self.assertEqual(totals["automatedAiCostUsd"], 4)
+            self.assertEqual(totals["estimatedManualMinutes"], 60)
+            self.assertEqual(totals["estimatedMinutesSaved"], 30)
+            self.assertEqual(totals["estimatedAiAssistedTotalCostUsd"], 31)
+            self.assertEqual(totals["netValueUsd"], 14)
+            self.assertEqual(totals["roi"], 14)
+            automated = store.session("session-automated")
+            self.assertEqual(automated["exclusionReason"], "automated_session")
+            self.assertEqual(automated["aiCostUsd"], 4)
+
+    def test_overview_fails_closed_when_automated_spend_cannot_be_summed(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            root = Path(temporary_directory)
+            sessions = root / "sessions"
+            sessions.mkdir()
+            config_path = root / "value-model.local.json"
+            config_path.write_text("{}\n", encoding="utf-8")
+            started = datetime.now(timezone.utc) - timedelta(hours=1)
+            for index in range(2):
+                (sessions / f"session-automated-{index}.json").write_text(json.dumps({
+                    "experiment": f"automated-{index}",
+                    "startedAt": started.isoformat(),
+                    "completedAt": (started + timedelta(minutes=1)).isoformat(),
+                    "status": "published",
+                    "sessionMode": "automated",
+                    "usage": {"aiCostUsd": 1e308},
+                    "source": {},
+                }), encoding="utf-8")
+            store = ValueStore(root / "value.db", sessions, root / "traces.json", config_path)
+            # Lift the per-value bound so two finite automated spends overflow only when summed.
+            with patch("backend.app.store.MAX_AGGREGATE_COMPONENT", float("inf")):
+                store.index_once()
+                overview = store.overview("base", 30)
+
+            self.assertEqual(overview["modelingStatus"], "invalid")
+            self.assertEqual(overview["totals"]["sessions"], 0)
+            self.assertEqual(overview["totals"]["automatedSessions"], 2)
+            json.dumps(overview, allow_nan=False)
+
+    def test_session_payloads_round_trip_runtime_attribution(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            root = Path(temporary_directory)
+            sessions = root / "sessions"
+            sessions.mkdir()
+            config_path = root / "value-model.local.json"
+            config_path.write_text("{}\n", encoding="utf-8")
+            started = datetime.now(timezone.utc) - timedelta(hours=1)
+            cases = {
+                "cli": ({"surface": "cli", "sessionMode": "interactive"}, ("cli", "interactive", None)),
+                "vscode": ({"surface": "vscode"}, ("vscode", "interactive", None)),
+                "sdk": (
+                    {"surface": "sdk", "sessionMode": "automated", "exclusionReason": "automated_session"},
+                    ("sdk", "automated", "automated_session"),
+                ),
+                "app": ({"surface": "app", "sessionMode": "interactive"}, ("app", "interactive", None)),
+                "mixed": ({"surface": "mixed"}, ("mixed", "interactive", None)),
+                "unknown": (
+                    {"surface": "editor", "sessionMode": "batch", "exclusionReason": "private detail"},
+                    ("other", "interactive", None),
+                ),
+                "missing": ({}, ("other", "interactive", None)),
+            }
+
+            def write(name: str, fields: dict[str, object]) -> None:
+                (sessions / f"session-{name}.json").write_text(json.dumps({
+                    "experiment": name,
+                    "startedAt": started.isoformat(),
+                    "completedAt": (started + timedelta(minutes=1)).isoformat(),
+                    "status": "published",
+                    "usage": {},
+                    "source": {},
+                    **fields,
+                }), encoding="utf-8")
+
+            for name, (fields, _expected) in cases.items():
+                write(name, fields)
+            store = ValueStore(root / "value.db", sessions, root / "traces.json", config_path)
+            store.index_once()
+
+            def attribution(payload: dict) -> tuple:
+                return payload["surface"], payload["sessionMode"], payload["exclusionReason"]
+
+            overview = {payload["experiment"]: payload for payload in store.overview("base", 30)["sessions"]}
+            exported = {payload["experiment"]: payload for payload in store.export_data()[0]}
+            for name, (_fields, expected) in cases.items():
+                with self.subTest(case=name):
+                    self.assertEqual(attribution(store.session(name)), expected)
+                    self.assertEqual(attribution(overview[name]), expected)
+                    self.assertEqual(attribution(exported[name]), expected)
+
+            write("cli", {"surface": "vscode", "sessionMode": "automated", "exclusionReason": "automated_session"})
+            store.index_once()
+            self.assertEqual(attribution(store.session("cli")), ("vscode", "automated", "automated_session"))
+
     def test_overview_excludes_superseded_formula_results_from_modeled_totals(self) -> None:
         with tempfile.TemporaryDirectory() as temporary_directory:
             root = Path(temporary_directory)
@@ -1714,374 +1685,12 @@ class ValueStoreTests(unittest.TestCase):
             self.assertIsNone(overview["sessions"][0]["scenarioResult"])
             self.assertFalse(overview["sessions"][0]["currentFormula"])
 
-    def test_indexes_prompt_from_rotated_trace_archive(self) -> None:
-        with tempfile.TemporaryDirectory() as temporary_directory:
-            root = Path(temporary_directory)
-            sessions = root / "sessions"
-            sessions.mkdir()
-            trace_path = root / "traces.json"
-            config_path = root / "value-model.local.json"
-            config_path.write_text("{}\n", encoding="utf-8")
-            started = datetime.now(timezone.utc).replace(microsecond=0)
-            started_ms = int(started.timestamp() * 1000)
-            raw_session_id = "private-rotated-trace-session"
-            experiment = _public_session_id(raw_session_id, started_ms)
-            artifact = {
-                "experiment": experiment,
-                "startedAt": started.isoformat().replace("+00:00", "Z"),
-                "completedAt": datetime.fromtimestamp(
-                    (started_ms + 61_000) / 1000, timezone.utc
-                ).isoformat().replace("+00:00", "Z"),
-                "status": "published",
-                "usage": {
-                    "source": "otel_traces",
-                    "chatSpans": 1,
-                    "inputTokens": 20,
-                    "cacheReadTokens": 0,
-                    "uncachedInputTokens": 20,
-                    "outputTokens": 5,
-                    "reasoningTokens": 0,
-                    "aiCredits": 1,
-                    "aiCostUsd": 0.01,
-                    "models": [],
-                    "phases": {},
-                },
-                "source": {"source": "otel_only", "charactersAdded": 0},
-                "benchmark": None,
-            }
-            (sessions / f"{experiment}.json").write_text(
-                json.dumps(artifact), encoding="utf-8"
-            )
-
-            def nanos(offset_ms: int) -> str:
-                return str((started_ms + offset_ms) * 1_000_000)
-
-            def record(span: dict) -> dict:
-                return {
-                    "resourceSpans": [{
-                        "resource": {"attributes": [
-                            attribute("service.name", "copilot-chat"),
-                            attribute("session.id", raw_session_id),
-                        ]},
-                        "scopeSpans": [{"spans": [span]}],
-                    }],
-                }
-
-            rotated_trace = root / "traces-2026-08-05T10-01-00-size.json"
-            rotated_trace.write_text(json.dumps(record({
-                "traceId": "prompt-trace",
-                "spanId": "prompt-span",
-                "name": "chat model-a",
-                "startTimeUnixNano": nanos(0),
-                "endTimeUnixNano": nanos(1_000),
-                "attributes": [
-                    attribute("copilot_chat.user_request", "Retained prompt"),
-                    attribute("gen_ai.conversation.id", "conversation"),
-                    attribute("gen_ai.request.model", "model-a"),
-                    attribute("copilot_chat.copilot_usage_nano_aiu", 1_000_000_000, "intValue"),
-                ],
-            })) + "\n", encoding="utf-8")
-            trace_path.write_text(json.dumps(record({
-                "traceId": "later-trace",
-                "spanId": "later-span",
-                "name": "execute_tool read_file",
-                "startTimeUnixNano": nanos(60_000),
-                "endTimeUnixNano": nanos(61_000),
-                "attributes": [attribute("gen_ai.tool.name", "read_file")],
-            })) + "\n", encoding="utf-8")
-            second_rotated_trace = root / "traces-2026-08-05T10-02-00-size.json"
-            second_rotated_trace.write_text(json.dumps(record({
-                "traceId": "second-prompt-trace",
-                "spanId": "second-prompt-span",
-                "name": "chat model-a",
-                "startTimeUnixNano": nanos(30_000),
-                "endTimeUnixNano": nanos(31_000),
-                "attributes": [
-                    attribute("copilot_chat.user_request", "Second retained prompt"),
-                    attribute("gen_ai.conversation.id", "conversation"),
-                    attribute("gen_ai.request.model", "model-a"),
-                    attribute("copilot_chat.copilot_usage_nano_aiu", 1_000_000_000, "intValue"),
-                ],
-            })) + "\n", encoding="utf-8")
-
-            store = ValueStore(root / "value.db", sessions, trace_path, config_path)
-            store.index_once()
-
-            self.assertEqual(
-                [prompt["content"] for prompt in store.prompts(experiment)],
-                ["Retained prompt", "Second retained prompt"],
-            )
-
-            rotated_trace.unlink()
-            trace_path.write_text("", encoding="utf-8")
-            store.index_once()
-
-            self.assertEqual(
-                [prompt["content"] for prompt in store.prompts(experiment)],
-                ["Retained prompt", "Second retained prompt"],
-            )
-
-    def test_index_once_discovers_chat_logs_once_for_many_conversations(self) -> None:
-        with tempfile.TemporaryDirectory() as temporary_directory:
-            root = Path(temporary_directory)
-            workspace_storage = root / "workspace-storage"
-            direct_log = (
-                workspace_storage / "workspace" / "GitHub.copilot-chat"
-                / "debug-logs" / "conversation-0" / "main.jsonl"
-            )
-            direct_log.parent.mkdir(parents=True)
-            direct_log.write_text("{}\n", encoding="utf-8")
-            store = ValueStore(
-                root / "value.db", root / "sessions", root / "traces.json",
-                root / "config.json", workspace_storage,
-            )
-            store._chat_session_ids = {
-                f"conversation-{ordinal}" for ordinal in range(2_626)
-            }
-            original_glob = Path.glob
-            discovery_calls = 0
-
-            def counted_glob(path: Path, pattern: str):
-                nonlocal discovery_calls
-                if path == workspace_storage:
-                    discovery_calls += 1
-                    self.assertLessEqual(
-                        discovery_calls, 1,
-                        "A refresh must enumerate the log tree once, not per conversation",
-                    )
-                return original_glob(path, pattern)
-
-            with (
-                patch.object(Path, "glob", autospec=True, side_effect=counted_glob),
-                patch.object(store, "_index_prompts", return_value=()),
-            ):
-                store.index_once()
-                self.assertEqual(store._chat_log_path("conversation-0"), direct_log)
-                self.assertIsNone(store._chat_log_path("conversation-0-suffix"))
-                self.assertEqual(len(store._current_chat_log_signature()), 1)
-
-            self.assertEqual(discovery_calls, 1)
-
-    def test_chat_log_index_refreshes_new_changed_and_removed_logs(self) -> None:
-        with tempfile.TemporaryDirectory() as temporary_directory:
-            root = Path(temporary_directory)
-            workspace_storage = root / "workspace-storage"
-            store = ValueStore(
-                root / "value.db", root / "sessions", root / "traces.json",
-                root / "config.json", workspace_storage,
-            )
-            store._chat_session_ids = {"conversation"}
-            with closing(store._connect()) as connection, connection:
-                enqueue_session(connection, "raw-log-session")
-                connection.execute("INSERT INTO indexing_conversations VALUES ('raw-log-session', 'conversation')")
-
-            def requested_version() -> int:
-                with closing(store._connect()) as connection:
-                    return connection.execute(
-                        "SELECT requested_version FROM indexing_work WHERE session_id = 'raw-log-session'"
-                    ).fetchone()[0]
-
-            direct_logs = [
-                workspace_storage / workspace / "GitHub.copilot-chat"
-                / "debug-logs" / "conversation" / "main.jsonl"
-                for workspace in ("workspace-a", "workspace-b")
-            ]
-            with patch.object(store, "_index_prompts", return_value=()):
-                store.index_once()
-                self.assertIsNone(store._chat_log_path("conversation"))
-                initial_version = requested_version()
-
-                for path in reversed(direct_logs):
-                    path.parent.mkdir(parents=True)
-                    path.write_text("{}\n", encoding="utf-8")
-                store.index_once()
-                self.assertEqual(store._chat_log_path("conversation"), direct_logs[0])
-                self.assertEqual(requested_version(), initial_version + 1)
-                store.index_once()
-                self.assertEqual(requested_version(), initial_version + 1)
-
-                direct_logs[0].write_text("{}\n{}\n", encoding="utf-8")
-                store.index_once()
-                self.assertEqual(requested_version(), initial_version + 2)
-
-                direct_logs[0].unlink()
-                store.index_once()
-                self.assertEqual(store._chat_log_path("conversation"), direct_logs[1])
-                self.assertEqual(requested_version(), initial_version + 3)
-
-                direct_logs[1].unlink()
-                store.index_once()
-                self.assertIsNone(store._chat_log_path("conversation"))
-                self.assertEqual(store._current_chat_log_signature(), ())
-                self.assertEqual(requested_version(), initial_version + 4)
-
-    def test_chat_log_growth_during_indexing_is_detected_on_next_pass(self) -> None:
-        with tempfile.TemporaryDirectory() as temporary_directory:
-            root = Path(temporary_directory)
-            workspace_storage = root / "workspace-storage"
-            direct_log = (
-                workspace_storage / "workspace" / "GitHub.copilot-chat"
-                / "debug-logs" / "conversation" / "main.jsonl"
-            )
-            direct_log.parent.mkdir(parents=True)
-            direct_log.write_text("{}\n", encoding="utf-8")
-            initial_size = direct_log.stat().st_size
-            store = ValueStore(
-                root / "value.db", root / "sessions", root / "traces.json",
-                root / "config.json", workspace_storage,
-            )
-            store._chat_session_ids = {"conversation"}
-
-            def grow_log() -> tuple:
-                direct_log.write_text("{}\n{}\n", encoding="utf-8")
-                return ()
-
-            with patch.object(store, "_index_prompts", side_effect=grow_log) as index_prompts:
-                store.index_once()
-                self.assertEqual(store._chat_log_signature[0][2], initial_size)
-                index_prompts.side_effect = None
-                index_prompts.return_value = ()
-                store.index_once()
-                self.assertEqual(store._chat_log_signature[0][2], initial_size * 2)
-                self.assertEqual(index_prompts.call_count, 2)
-                store.index_once()
-                self.assertEqual(store._chat_log_signature[0][2], initial_size * 2)
-
-    def test_indexes_direct_turn_when_request_and_conversation_are_on_separate_traces(self) -> None:
-        with tempfile.TemporaryDirectory() as temporary_directory:
-            root = Path(temporary_directory)
-            sessions = root / "sessions"
-            sessions.mkdir()
-            trace_path = root / "traces.json"
-            config_path = root / "value-model.local.json"
-            config_path.write_text("{}\n", encoding="utf-8")
-            workspace_storage = root / "workspace-storage"
-            started = datetime.now(timezone.utc).replace(microsecond=0)
-            started_ms = int(started.timestamp() * 1000)
-            raw_session_id = "private-split-trace-session"
-            experiment = _public_session_id(raw_session_id, started_ms)
-            artifact = {
-                "experiment": experiment,
-                "startedAt": started.isoformat().replace("+00:00", "Z"),
-                "completedAt": datetime.fromtimestamp(
-                    (started_ms + 1_000) / 1000, timezone.utc
-                ).isoformat().replace("+00:00", "Z"),
-                "status": "published",
-                "usage": {
-                    "source": "copilot_turn_log",
-                    "chatSpans": 1,
-                    "inputTokens": 30,
-                    "cacheReadTokens": 10,
-                    "uncachedInputTokens": 20,
-                    "outputTokens": 5,
-                    "reasoningTokens": 0,
-                    "aiCredits": 2,
-                    "aiCostUsd": 0.02,
-                    "models": [],
-                    "phases": {},
-                },
-                "source": {"source": "otel_only", "charactersAdded": 0},
-                "benchmark": None,
-            }
-            (sessions / f"{experiment}.json").write_text(
-                json.dumps(artifact), encoding="utf-8"
-            )
-
-            def nanos(offset_ms: int) -> str:
-                return str((started_ms + offset_ms) * 1_000_000)
-
-            trace_path.write_text(json.dumps({
-                "resourceSpans": [{
-                    "resource": {"attributes": [
-                        attribute("service.name", "copilot-chat"),
-                        attribute("session.id", raw_session_id),
-                    ]},
-                    "scopeSpans": [{"spans": [
-                        {
-                            "traceId": "request-trace",
-                            "spanId": "request-span",
-                            "name": "chat model-a",
-                            "startTimeUnixNano": nanos(0),
-                            "attributes": [
-                                attribute("copilot_chat.user_request", "Direct prompt"),
-                            ],
-                        },
-                        {
-                            "traceId": "conversation-trace",
-                            "spanId": "conversation-span",
-                            "name": "chat model-a",
-                            "startTimeUnixNano": nanos(100),
-                            "attributes": [
-                                attribute("gen_ai.conversation.id", "conversation"),
-                                attribute("gen_ai.request.model", "model-a"),
-                            ],
-                        },
-                    ]}],
-                }],
-            }) + "\n", encoding="utf-8")
-
-            direct_log = (
-                workspace_storage
-                / "workspace"
-                / "GitHub.copilot-chat"
-                / "debug-logs"
-                / "conversation"
-                / "main.jsonl"
-            )
-            direct_log.parent.mkdir(parents=True)
-            direct_log.write_text("\n".join(json.dumps(event) for event in [
-                {
-                    "ts": started_ms,
-                    "type": "user_message",
-                    "attrs": {"content": "Direct prompt"},
-                },
-                {
-                    "ts": started_ms + 100,
-                    "type": "llm_request",
-                    "attrs": {
-                        "model": "model-a",
-                        "inputTokens": str(2**63 - 1),
-                        "cachedTokens": 0,
-                        "outputTokens": str(2**53 + 1),
-                        "copilotUsageNanoAiu": 2_000_000_000,
-                    },
-                },
-            ]) + "\n", encoding="utf-8")
-
-            store = ValueStore(
-                root / "value.db", sessions, trace_path, config_path, workspace_storage
-            )
-            store.index_once()
-
-            prompts = store.prompts(experiment)
-            self.assertEqual(len(prompts), 1)
-            self.assertEqual(prompts[0]["content"], "Direct prompt")
-            self.assertEqual(prompts[0]["modelRequests"], 1)
-            self.assertIsNone(prompts[0]["inputTokens"])
-            self.assertEqual(prompts[0]["inputTokensExact"], str(2**63 - 1))
-            self.assertIsNone(prompts[0]["outputTokens"])
-            self.assertEqual(prompts[0]["outputTokensExact"], str(2**53 + 1))
-            self.assertEqual(prompts[0]["usageSource"], "copilot_turn_log")
-
-            artifact["usage"]["source"] = "otel_traces"
-            (sessions / f"{experiment}.json").write_text(
-                json.dumps(artifact), encoding="utf-8"
-            )
-            store.index_once()
-
-            prompts = store.prompts(experiment)
-            self.assertEqual(len(prompts), 1)
-            self.assertEqual(prompts[0]["content"], "Direct prompt")
-            self.assertEqual(prompts[0]["usageSource"], "copilot_turn_log")
-
     def test_indexes_sessions_and_ordered_prompt_groups_after_earlier_span_arrives(self) -> None:
         with tempfile.TemporaryDirectory() as temporary_directory:
             root = Path(temporary_directory)
             sessions = root / "sessions"
             sessions.mkdir()
-            trace_path = root / "traces.json"
             config_path = root / "value-model.local.json"
-            workspace_storage = root / "workspace-storage"
             started = (datetime.now(timezone.utc) - timedelta(hours=2)).replace(microsecond=0)
             started_ms = int(started.timestamp() * 1000)
             raw_session_id = "private-test-session"
@@ -2126,7 +1735,7 @@ class ValueStoreTests(unittest.TestCase):
                 "completedAt": completed.isoformat().replace("+00:00", "Z"),
                 "status": "published",
                 "usage": {
-                    "source": "copilot_turn_log",
+                    "source": "otel_traces",
                     "chatSpans": 3,
                     "inputTokens": 180,
                     "cacheReadTokens": 60,
@@ -2170,144 +1779,55 @@ class ValueStoreTests(unittest.TestCase):
                 encoding="utf-8",
             )
 
-            def nanos(offset_ms: int) -> str:
-                return str((started_ms + offset_ms) * 1_000_000)
+            def nanos(offset_ms: int) -> int:
+                return (started_ms + offset_ms) * 1_000_000
 
-            spans = [
-                {
-                    "traceId": "trace-early",
-                    "spanId": "00",
-                    "name": "execute_tool read_file",
-                    "startTimeUnixNano": nanos(-28_000),
-                    "endTimeUnixNano": nanos(-27_900),
-                    "attributes": [attribute("gen_ai.tool.name", "read_file")],
-                },
-                {
-                    "traceId": "trace-first",
-                    "spanId": "01",
-                    "name": "chat model-a",
-                    "startTimeUnixNano": nanos(0),
-                    "endTimeUnixNano": nanos(500),
-                    "attributes": [
-                        attribute("copilot_chat.user_request", "First prompt"),
-                        attribute("gen_ai.conversation.id", "conversation"),
-                        attribute("gen_ai.request.model", "model-a"),
-                        attribute("gen_ai.usage.input_tokens", 100, "intValue"),
-                        attribute("gen_ai.usage.cache_read.input_tokens", 40, "intValue"),
-                        attribute("gen_ai.usage.output_tokens", 10, "intValue"),
-                        attribute("gen_ai.usage.reasoning_tokens", 5, "intValue"),
-                        attribute("copilot_chat.copilot_usage_nano_aiu", 1_000_000_000, "intValue"),
-                    ],
-                },
-                {
-                    "traceId": "trace-first",
-                    "spanId": "02",
-                    "name": "execute_tool read_file",
-                    "startTimeUnixNano": nanos(600),
-                    "endTimeUnixNano": nanos(700),
-                    "attributes": [attribute("gen_ai.tool.name", "read_file")],
-                },
-                {
-                    "traceId": "trace-first",
-                    "spanId": "03",
-                    "name": "chat model-a",
-                    "startTimeUnixNano": nanos(800),
-                    "endTimeUnixNano": nanos(1000),
-                    "attributes": [
-                        attribute("gen_ai.request.model", "model-a"),
-                        attribute("gen_ai.usage.input_tokens", 50, "intValue"),
-                        attribute("gen_ai.usage.cache_read.input_tokens", 20, "intValue"),
-                        attribute("gen_ai.usage.output_tokens", 8, "intValue"),
-                        attribute("gen_ai.usage.reasoning_tokens", 3, "intValue"),
-                        attribute("copilot_chat.copilot_usage_nano_aiu", 2_000_000_000, "intValue"),
-                    ],
-                },
-                {
-                    "traceId": "trace-first",
-                    "spanId": "03b",
-                    "name": "chat model-a",
-                    "startTimeUnixNano": nanos(1500),
-                    "endTimeUnixNano": nanos(1600),
-                    "attributes": [
-                        attribute("copilot_chat.user_request", "Image associated with the above tool call:"),
-                        attribute("gen_ai.conversation.id", "conversation"),
-                        attribute("gen_ai.request.model", "model-a"),
-                    ],
-                },
-                {
-                    "traceId": "trace-second",
-                    "spanId": "04",
-                    "name": "chat model-b",
-                    "startTimeUnixNano": nanos(2000),
-                    "endTimeUnixNano": nanos(2500),
-                    "attributes": [
-                        attribute("copilot_chat.user_request", "Second prompt"),
-                        attribute("gen_ai.conversation.id", "conversation-second"),
-                        attribute("gen_ai.request.model", "model-b"),
-                        attribute("gen_ai.usage.input_tokens", 30, "intValue"),
-                        attribute("gen_ai.usage.output_tokens", 12, "intValue"),
-                        attribute("gen_ai.usage.reasoning_tokens", 4, "intValue"),
-                        attribute("copilot_chat.copilot_usage_nano_aiu", 1_000_000_000, "intValue"),
-                    ],
-                },
-            ]
-            record = {
-                "resourceSpans": [{
-                    "resource": {"attributes": [
-                        attribute("service.name", "copilot-chat"),
-                        attribute("session.id", raw_session_id),
-                    ]},
-                    "scopeSpans": [{"spans": spans}],
-                }]
-            }
-            trace_path.write_text(json.dumps(record) + "\n", encoding="utf-8")
+            first_message = runtime_payload([
+                agent_span(
+                    trace_id="trace-first", span_id="01", conversation=raw_session_id,
+                    start_ns=nanos(0), end_ns=nanos(1_600),
+                    attributes=[attribute("github.copilot.nano_aiu", 5_000_000_000, "intValue")],
+                ),
+                chat_span(
+                    trace_id="trace-first", span_id="02", parent_span_id="01",
+                    conversation=raw_session_id, start_ns=nanos(10), end_ns=nanos(500),
+                    input_tokens=100, cache_read_tokens=40, output_tokens=10,
+                    reasoning_tokens=5, nano_aiu=2_000_000_000,
+                ),
+                tool_span(
+                    "read_file", trace_id="trace-first", span_id="03", parent_span_id="01",
+                    conversation=raw_session_id, start_ns=nanos(600), end_ns=nanos(700),
+                ),
+                chat_span(
+                    trace_id="trace-first", span_id="04", parent_span_id="01",
+                    conversation=raw_session_id, start_ns=nanos(800), end_ns=nanos(1_000),
+                    input_tokens=50, cache_read_tokens=20, output_tokens=8,
+                    reasoning_tokens=3, nano_aiu=3_000_000_000,
+                ),
+                tool_span(
+                    "task", trace_id="trace-first", span_id="05", parent_span_id="01",
+                    conversation=raw_session_id, start_ns=nanos(1_100), end_ns=nanos(1_500),
+                ),
+            ])
+            second_message = runtime_payload([chat_span(
+                model="model-b", trace_id="trace-second", span_id="06",
+                conversation=raw_session_id, start_ns=nanos(2_000), end_ns=nanos(2_500),
+                input_tokens=30, output_tokens=12, reasoning_tokens=4, nano_aiu=4_000_000_000,
+            )])
 
-            direct_log = (
-                workspace_storage
-                / "workspace"
-                / "GitHub.copilot-chat"
-                / "debug-logs"
-                / "conversation"
-                / "main.jsonl"
-            )
-            direct_log.parent.mkdir(parents=True)
-            direct_events = [
-                {"ts": started_ms, "type": "user_message", "attrs": {"content": "First prompt"}},
-                {"ts": started_ms + 100, "type": "llm_request", "attrs": {"model": "model-a", "inputTokens": 100, "cachedTokens": 40, "outputTokens": 10, "reasoningTokens": 5, "copilotUsageNanoAiu": 2_000_000_000}},
-                {"ts": started_ms + 200, "type": "tool_call", "name": "read_file", "attrs": {}},
-                {"ts": started_ms + 300, "type": "llm_request", "attrs": {"model": "model-a", "inputTokens": 50, "cachedTokens": 20, "outputTokens": 8, "reasoningTokens": 3, "copilotUsageNanoAiu": 3_000_000_000}},
-            ]
-            direct_log.write_text(
-                "\n".join([
-                    json.dumps(direct_events[0]),
-                    "non-json diagnostic line",
-                    *(json.dumps(event) for event in direct_events[1:]),
-                ]) + "\n",
-                encoding="utf-8",
-            )
-            second_direct_log = (
-                workspace_storage
-                / "workspace"
-                / "GitHub.copilot-chat"
-                / "debug-logs"
-                / "conversation-second"
-                / "main.jsonl"
-            )
-            second_direct_log.parent.mkdir(parents=True)
-            second_direct_log.write_text(
-                "\n".join(json.dumps(event) for event in [
-                    {"ts": started_ms + 2_000, "type": "user_message", "attrs": {"content": "Second prompt"}},
-                    {"ts": started_ms + 2_100, "type": "llm_request", "attrs": {"model": "model-b", "inputTokens": 30, "cachedTokens": 0, "outputTokens": 12, "reasoningTokens": 4, "copilotUsageNanoAiu": 4_000_000_000}},
-                ]) + "\n",
-                encoding="utf-8",
-            )
-
-            store = ValueStore(root / "value.db", sessions, trace_path, config_path, workspace_storage)
+            store = ValueStore(root / "value.db", sessions, root / "traces.json", config_path)
+            self.assertEqual(store.ingest_otlp_traces(second_message)["accepted"], 1)
             store.index_once()
             self.assertEqual(store.overview("base", 30)["totals"]["sessions"], 0)
             (sessions / f"{experiment}.json").write_text(json.dumps(artifact), encoding="utf-8")
             store.index_once()
+            self.assertEqual(store.indexing_status()["reason"], "incomplete_retained_history")
+            self.assertIsNone(store.session(experiment))
 
+            self.assertEqual(store.ingest_otlp_traces(first_message)["accepted"], 5)
+            store.index_once()
+
+            self.assertEqual(store.indexing_status()["state"], "current")
             overview = store.overview("base", 30)
             self.assertEqual(overview["totals"]["sessions"], 1)
             self.assertEqual(overview["totals"]["prompts"], 2)
@@ -2326,15 +1846,35 @@ class ValueStoreTests(unittest.TestCase):
             self.assertEqual(session["latestMessageAt"], overview["sessions"][0]["latestMessageAt"])
             self.assertEqual(session["scenarioResult"]["estimatedMinutesSaved"], 15)
             prompts = store.prompts(experiment)
-            self.assertEqual([prompt["content"] for prompt in prompts], ["First prompt", "Second prompt"])
+            self.assertEqual([prompt["ordinal"] for prompt in prompts], [1, 2])
+            self.assertEqual(
+                [prompt["startedAt"] for prompt in prompts],
+                [
+                    datetime.fromtimestamp(started_ms / 1000, timezone.utc).isoformat(),
+                    overview["sessions"][0]["latestMessageAt"],
+                ],
+            )
+            for prompt in prompts:
+                self.assertEqual(prompt["content"], "")
+                self.assertFalse(prompt["contentAvailable"])
+                self.assertEqual(prompt["capturedContentLength"], 0)
+                self.assertEqual(prompt["usageSource"], "otel_trace")
+                self.assertIsNone(prompt["roi"])
+                self.assertEqual(prompt["roiStatus"], "prompt_level_attribution_required")
             self.assertEqual(prompts[0]["modelRequests"], 2)
             self.assertEqual(prompts[0]["toolCalls"], 1)
+            self.assertEqual(prompts[0]["inputTokens"], 150)
+            self.assertEqual(prompts[0]["cacheReadTokens"], 60)
+            self.assertEqual(prompts[0]["cacheReadRatio"], 0.4)
+            self.assertEqual(prompts[0]["outputTokens"], 18)
+            self.assertEqual(prompts[0]["reasoningTokens"], 8)
             self.assertEqual(prompts[0]["aiCredits"], 5)
             self.assertAlmostEqual(prompts[0]["aiCostUsd"], 0.05)
-            self.assertEqual(prompts[0]["usageSource"], "copilot_turn_log")
+            self.assertEqual(prompts[0]["models"], {"model-a": 2})
             self.assertEqual(prompts[1]["aiCredits"], 4)
-            self.assertEqual(prompts[1]["usageSource"], "copilot_turn_log")
+            self.assertEqual(prompts[1]["cacheReadRatio"], 0)
             self.assertEqual(store.prompt(prompts[1]["promptId"])["models"], {"model-b": 1})
+            self.assertIsNone(store.prompt("prompt-missing"))
             self.assertEqual(store.methodology()["claim"], "Modeled AI Usage ROI")
             self.assertIn("manualLaborCost", store.methodology()["formulas"])
             self.assertIn("grossCostSavings", store.methodology()["formulas"])
@@ -2345,25 +1885,10 @@ class ValueStoreTests(unittest.TestCase):
                 next(metric for metric in insights["metrics"] if metric["key"] == "session_usage_coverage")["current"],
                 1,
             )
-
-            direct_log.unlink()
-            second_direct_log.unlink()
-            artifact["usage"].update({
-                "source": "otel_traces",
-                "aiCredits": 4,
-                "aiCostUsd": 0.04,
-            })
-            artifact["benchmark"] = complete_benchmark({
-                "pessimistic": source_scenario(0, 0.04),
-                "base": source_scenario(5, 0.04),
-                "optimistic": source_scenario(15, 0.04),
-            }, retained_source_characters=120, ai_cost_usd=0.04)
-            (sessions / f"{experiment}.json").write_text(json.dumps(artifact), encoding="utf-8")
-            store.index_once()
-            fallback_prompts = store.prompts(experiment)
-            self.assertEqual([prompt["content"] for prompt in fallback_prompts], ["First prompt", "Second prompt"])
-            self.assertEqual(fallback_prompts[0]["aiCredits"], 3)
-            self.assertEqual(fallback_prompts[0]["usageSource"], "otel_trace")
+            exported_sessions, exported_prompts = store.export_data()
+            self.assertEqual(exported_sessions[0]["promptCount"], 2)
+            self.assertEqual(exported_sessions[0]["latestMessageAt"], prompts[1]["startedAt"])
+            self.assertEqual(exported_prompts[experiment], prompts)
 
             config_path.write_text(
                 json.dumps({
@@ -2376,12 +1901,13 @@ class ValueStoreTests(unittest.TestCase):
             with patch.object(
                 store,
                 "_prepare_index_work",
-                side_effect=RuntimeError("unstable trace archive"),
+                side_effect=RuntimeError("unstable inbox read"),
             ):
                 store.index_once()
             self.assertEqual(store.indexing_status()["state"], "blocked")
             self.assertEqual(store.indexing_status()["reason"], "indexing_error")
             disabled_prompts = store.prompts(experiment)
+            self.assertEqual(len(disabled_prompts), 2)
             self.assertFalse(disabled_prompts[0]["contentAvailable"])
             self.assertEqual(disabled_prompts[0]["content"], "")
 

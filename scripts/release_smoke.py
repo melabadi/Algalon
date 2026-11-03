@@ -6,7 +6,6 @@ import json
 from pathlib import Path
 import secrets
 import time
-from typing import Sequence
 from urllib.error import URLError
 from urllib.parse import urlencode
 from urllib.request import Request, urlopen
@@ -95,35 +94,50 @@ def smoke_metric_payload(probe: str, forbidden: str) -> dict[str, object]:
 
 
 def smoke_trace_payload(
-    session_id: str,
     conversation_id: str,
-    prompt: str,
     started_milliseconds: int,
     *,
     include_tool: bool,
+    automated: bool = False,
 ) -> dict[str, object]:
+    """One Copilot runtime user message: root invoke_agent, one chat request, and optionally a tool call."""
     to_nanos = lambda milliseconds: str(milliseconds * 1_000_000)
+    trace_id = secrets.token_hex(16)
+    root_span_id = secrets.token_hex(8)
     spans: list[dict[str, object]] = [{
-        "traceId": secrets.token_hex(16),
+        "traceId": trace_id,
         "spanId": secrets.token_hex(8),
+        "parentSpanId": root_span_id,
         "name": "chat portable-smoke-model",
-        "startTimeUnixNano": to_nanos(started_milliseconds),
-        "endTimeUnixNano": to_nanos(started_milliseconds + 200),
+        "startTimeUnixNano": to_nanos(started_milliseconds + 10),
+        "endTimeUnixNano": to_nanos(started_milliseconds + 210),
         "attributes": [
-            otlp_attribute("copilot_chat.user_request", prompt),
+            otlp_attribute("gen_ai.operation.name", "chat"),
             otlp_attribute("gen_ai.conversation.id", conversation_id),
             otlp_attribute("gen_ai.request.model", "portable-smoke-model"),
             otlp_attribute("gen_ai.usage.input_tokens", 100, "intValue"),
             otlp_attribute("gen_ai.usage.cache_read.input_tokens", 0, "intValue"),
             otlp_attribute("gen_ai.usage.output_tokens", 50, "intValue"),
-            otlp_attribute("gen_ai.usage.reasoning_tokens", 10, "intValue"),
-            otlp_attribute("copilot_chat.copilot_usage_nano_aiu", 1_000_000_000, "intValue"),
+            otlp_attribute("gen_ai.usage.reasoning.output_tokens", 10, "intValue"),
+            otlp_attribute("github.copilot.nano_aiu", 1_000_000_000, "intValue"),
+        ],
+    }, {
+        "traceId": trace_id,
+        "spanId": root_span_id,
+        "name": "invoke_agent",
+        "startTimeUnixNano": to_nanos(started_milliseconds),
+        "endTimeUnixNano": to_nanos(started_milliseconds + 500),
+        "attributes": [
+            otlp_attribute("gen_ai.operation.name", "invoke_agent"),
+            otlp_attribute("gen_ai.conversation.id", conversation_id),
+            otlp_attribute("github.copilot.nano_aiu", 1_000_000_000, "intValue"),
         ],
     }]
     if include_tool:
         spans.append({
-            "traceId": secrets.token_hex(16),
+            "traceId": trace_id,
             "spanId": secrets.token_hex(8),
+            "parentSpanId": root_span_id,
             "name": "execute_tool apply_patch",
             "startTimeUnixNano": to_nanos(started_milliseconds + 300),
             "endTimeUnixNano": to_nanos(started_milliseconds + 400),
@@ -133,20 +147,26 @@ def smoke_trace_payload(
                 otlp_attribute("gen_ai.tool.name", "apply_patch"),
             ],
         })
+    resource = [
+        otlp_attribute("service.name", "github-copilot"),
+        otlp_attribute("service.version", "1.0.105"),
+    ]
+    if automated:
+        resource.extend([
+            otlp_attribute("algalon.session.mode", "automated"),
+            otlp_attribute("algalon.surface", "sdk"),
+        ])
     return {
         "resourceSpans": [{
-            "resource": {"attributes": [
-                otlp_attribute("service.name", "copilot-chat"),
-                otlp_attribute("session.id", session_id),
-            ]},
-            "scopeSpans": [{"scope": {"name": "copilot-chat"}, "spans": spans}],
+            "resource": {"attributes": resource},
+            "scopeSpans": [{"scope": {"name": "github.copilot"}, "spans": spans}],
         }]
     }
 
 
 def wait_for_app_session(
     experiment: str,
-    expected_prompt_contents: Sequence[str] = ("Synthetic portable smoke prompt",),
+    expected_prompt_count: int = 1,
     expected_ai_credits: float = 1,
     expected_input_tokens: int = 100,
     expected_output_tokens: int = 50,
@@ -163,14 +183,16 @@ def wait_for_app_session(
                 session = json.load(response)
             with urlopen(prompts_url, timeout=5) as response:
                 prompts = json.load(response)
-            if session.get("experiment") == experiment and len(prompts) == len(expected_prompt_contents):
-                if [prompt.get("content") for prompt in prompts] != list(expected_prompt_contents):
-                    raise CopilotValueError("FastAPI prompt index returned unexpected content.")
+            if session.get("experiment") == experiment and len(prompts) == expected_prompt_count:
+                if any(prompt.get("content") or prompt.get("contentAvailable") for prompt in prompts):
+                    raise CopilotValueError("FastAPI prompt index exposed prompt text from runtime telemetry.")
+                if session.get("surface") != "cli" or session.get("sessionMode") != "interactive":
+                    raise CopilotValueError("FastAPI session response returned unexpected runtime attribution.")
                 if (
                     abs(sum(float(prompt.get("aiCredits") or 0) for prompt in prompts) - expected_ai_credits) > 1e-9
                     or any(prompt.get("usageSource") != "otel_trace" for prompt in prompts)
                 ):
-                    raise CopilotValueError("FastAPI OTel prompt fallback returned unexpected usage evidence.")
+                    raise CopilotValueError("FastAPI runtime prompt grouping returned unexpected usage evidence.")
                 if (
                     abs(float(session.get("aiCredits") or 0) - expected_ai_credits) > 1e-9
                     or abs(float(session.get("aiCostUsd") or 0) - expected_ai_credits / 100) > 1e-9
@@ -256,6 +278,32 @@ def wait_for_app_overview(experiment: str, timeout_seconds: int = 90) -> None:
     raise CopilotValueError(f"FastAPI portfolio modeling remained unavailable for '{experiment}'.")
 
 
+def wait_for_automated_exclusion(experiment: str, timeout_seconds: int = 90) -> None:
+    deadline = time.monotonic() + timeout_seconds
+    session_url = f"http://127.0.0.1:3000/api/sessions/{experiment}"
+    overview_url = "http://127.0.0.1:3000/api/overview?scenario=base&days=30"
+    while time.monotonic() < deadline:
+        try:
+            with urlopen(session_url, timeout=5) as response:
+                session = json.load(response)
+            with urlopen(overview_url, timeout=5) as response:
+                overview = json.load(response)
+            if (
+                session.get("sessionMode") == "automated"
+                and session.get("surface") == "sdk"
+                and session.get("exclusionReason") == "automated_session"
+                and session.get("benchmark") is None
+                and abs(float(session.get("aiCredits") or 0) - 1) <= 1e-9
+                and int((overview.get("totals") or {}).get("automatedSessions") or 0) >= 1
+            ):
+                print(f"Automated session exclusion passed: {experiment}")
+                return
+        except (OSError, URLError, json.JSONDecodeError):
+            pass
+        time.sleep(0.5)
+    raise CopilotValueError(f"Automated session '{experiment}' was not excluded from modeled value.")
+
+
 def run_telemetry_smoke(root: Path | None = None) -> str:
     collector_endpoint = "http://127.0.0.1:4318"
     smoke_id = uuid.uuid4().hex
@@ -272,18 +320,11 @@ def run_telemetry_smoke(root: Path | None = None) -> str:
         raise CopilotValueError("Collector privacy processing did not remove the synthetic file path.")
 
     session_id = f"portable-smoke-{uuid.uuid4()}"
-    conversation_id = f"conversation-{smoke_id}"
     now_milliseconds = int(time.time() * 1000)
     started_at = datetime.fromtimestamp((now_milliseconds - 500) / 1000, timezone.utc)
     session_hash = hashlib.sha256(session_id.encode()).hexdigest()[:10]
     expected_experiment = f"session-{started_at:%Y%m%d-%H%M%S}-{session_hash}"
-    first_trace = smoke_trace_payload(
-        session_id,
-        conversation_id,
-        "Synthetic portable smoke prompt",
-        now_milliseconds - 500,
-        include_tool=True,
-    )
+    first_trace = smoke_trace_payload(session_id, now_milliseconds - 500, include_tool=True)
     post_json(
         f"{collector_endpoint}/v1/traces",
         first_trace,
@@ -308,25 +349,27 @@ def run_telemetry_smoke(root: Path | None = None) -> str:
         wait_for_app_session(expected_experiment)
         post_json(
             f"{collector_endpoint}/v1/traces",
-            smoke_trace_payload(
-                session_id,
-                conversation_id,
-                "Synthetic portable smoke prompt from late-arriving earlier span",
-                now_milliseconds - 1_500,
-                include_tool=False,
-            ),
+            smoke_trace_payload(session_id, now_milliseconds - 1_500, include_tool=False),
             retry_seconds=OTLP_READY_TIMEOUT_SECONDS,
         )
         wait_for_app_session(
             expected_experiment,
-            (
-                "Synthetic portable smoke prompt from late-arriving earlier span",
-                "Synthetic portable smoke prompt",
-            ),
+            2,
             expected_ai_credits=2,
             expected_input_tokens=200,
             expected_output_tokens=100,
             expected_started_milliseconds=now_milliseconds - 1_500,
         )
         wait_for_app_overview(expected_experiment)
+        automated_id = f"portable-smoke-automated-{uuid.uuid4()}"
+        automated_started = datetime.fromtimestamp((now_milliseconds - 500) / 1000, timezone.utc)
+        automated_experiment = (
+            f"session-{automated_started:%Y%m%d-%H%M%S}-{hashlib.sha256(automated_id.encode()).hexdigest()[:10]}"
+        )
+        post_json(
+            f"{collector_endpoint}/v1/traces",
+            smoke_trace_payload(automated_id, now_milliseconds - 500, include_tool=True, automated=True),
+            retry_seconds=OTLP_READY_TIMEOUT_SECONDS,
+        )
+        wait_for_automated_exclusion(automated_experiment)
     return expected_experiment

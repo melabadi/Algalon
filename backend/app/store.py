@@ -6,6 +6,7 @@ from hashlib import sha256
 import json
 from math import fsum, isclose, isfinite
 from pathlib import Path
+import shutil
 import sqlite3
 import threading
 from time import monotonic, time
@@ -13,19 +14,24 @@ from typing import Any, Iterable
 
 from .indexing import (
     IndexingBlocked, bootstrap_indexing, complete_work, enqueue_session, enqueue_work, initialize_indexing,
-    indexing_status, record_conversations, require_storage_capacity, retry_work,
-    stage_artifacts, stage_log_changes, write_prompts,
+    indexing_status, require_storage_capacity, retry_work,
+    stage_artifacts, write_prompts,
 )
+from .database_backup import backup_database
 from .insights import _complete_usage, _parse_iso, build_insights
 from .indexing_job import prepare_in_process
 from .intervals import union_interval_duration
-from .log_io import discover_logs, isolated_log_io
 from .prompt_index import (
-    conversation_ids,
     extract_prompt_content as _extract_prompt_content,
     group_prompts,
     prompt_group_counters_valid,
-    read_copilot_turns as _read_copilot_turns,
+)
+from .runtime_telemetry import (
+    is_runtime_resource,
+    resource_mode,
+    resource_surface,
+    span_operation,
+    stamped_resource,
 )
 from .session_identity import (
     prompt_id as _prompt_id,
@@ -35,12 +41,8 @@ from .session_identity import (
 )
 from .trace_archive import (
     archive_paths as _trace_archive_paths,
-    archive_signature as _trace_archive_signature,
-    archive_snapshot as _trace_archive_snapshot,
     attributes as _attributes,
-    collect_trace_sessions,
     collect_trace_sessions_from_records,
-    iter_json_lines as _iter_json_lines,
     milliseconds as _nanoseconds_to_milliseconds,
     read_json_lines as _read_json_lines,
 )
@@ -64,15 +66,17 @@ PHASE_SCENARIO_NUMERIC_FIELDS = (
     "estimatedMinutesSaved", "timeReduction",
 )
 BENCHMARK_PHASES = ("planning", "research", "coding", "validation", "unclassified")
+SESSION_SURFACES = ("cli", "vscode", "sdk", "app", "other", "mixed")
 MAX_JSON_DEPTH = 100
 MAX_JSON_NODES = 100_000
 MAX_FORMULA_VERSION = 2**31 - 1
 MIN_SQLITE_INTEGER = -(2**63)
 MAX_SQLITE_INTEGER = 2**63 - 1
 MAX_JSON_SAFE_INTEGER = 2**53 - 1
-LEGACY_TRACE_IMPORT_KEY = "legacy_trace_inbox_import_v1"
-PROMPT_INDEX_VERSION = 1
-OTEL_IMPORT_BATCH_SIZE = 1_000
+RUNTIME_MIGRATION_KEY = "runtime_capture_migration_v1"
+RUNTIME_MIGRATION_PENDING_KEY = "runtime_capture_migration_pending"
+RUNTIME_CAPTURE_GENERATION = "copilot-runtime-v1"
+SPAN_SESSION_RETENTION_SECONDS = 7 * 24 * 60 * 60
 OTEL_INBOX_PAGE_BYTES = 8 * 1024 * 1024
 INSIGHTS_SESSION_QUERY = """
     SELECT sessions.*
@@ -860,31 +864,19 @@ class ValueStore:
         session_directory: Path,
         trace_archive: Path,
         config_path: Path,
-        chat_log_root: Path | None = None,
-        *, isolate_log_io: bool = False,
+        *, isolate_preparation: bool = False,
     ) -> None:
         self.database_path = database_path
         self.session_directory = session_directory
         self.trace_archive = trace_archive
         self.config_path = config_path
-        self.chat_log_root = chat_log_root
-        self.isolate_log_io = isolate_log_io
-        self._log_discovery_error: str | None = None
-        self._log_retry_at = 0.0
+        self.isolate_preparation = isolate_preparation
         self._lock = threading.RLock()
-        self._trace_signature: object | None = None
         self._session_signature: tuple[tuple[str, int, int], ...] | None = None
         self._config_signature: tuple[int, int] | None = None
-        self._chat_log_signature: tuple[tuple[str, int, int], ...] | None = None
-        self._chat_session_ids: set[str] = set()
-        self._chat_log_index: dict[str, tuple[Path, int, int]] = {}
         self.database_path.parent.mkdir(parents=True, exist_ok=True)
         self._initialize()
-        with closing(self._connect()) as connection:
-            discovery_error = connection.execute(
-                "SELECT value FROM store_metadata WHERE key = 'indexing_discovery_error'"
-            ).fetchone()
-        self._log_discovery_error = discovery_error[0] or None if discovery_error else None
+        self._migrate_to_runtime_capture()
 
     def _connect(self) -> sqlite3.Connection:
         connection = sqlite3.connect(self.database_path, timeout=2)
@@ -935,6 +927,11 @@ class ValueStore:
 
     def _initialize(self) -> None:
         with closing(self._connect()) as connection:
+            existing_session_columns = {
+                row["name"] for row in connection.execute("PRAGMA table_info(sessions)")
+            }
+            # A sessions table without runtime attribution columns was written by a VS Code-era release.
+            self._legacy_schema_detected = bool(existing_session_columns) and "surface" not in existing_session_columns
             connection.executescript(
                 """
                 CREATE TABLE IF NOT EXISTS sessions (
@@ -996,11 +993,21 @@ class ValueStore:
                     value TEXT NOT NULL
                 );
 
+                CREATE TABLE IF NOT EXISTS otel_span_sessions (
+                    trace_id TEXT NOT NULL,
+                    span_id TEXT NOT NULL,
+                    session_id TEXT NOT NULL,
+                    recorded_at REAL NOT NULL,
+                    PRIMARY KEY(trace_id, span_id)
+                );
+
                 CREATE INDEX IF NOT EXISTS idx_sessions_completed_at ON sessions(completed_at DESC);
                 CREATE INDEX IF NOT EXISTS idx_session_time_epoch ON session_time_index(completed_at_epoch);
                 CREATE INDEX IF NOT EXISTS idx_prompts_experiment ON prompts(experiment, ordinal);
                 CREATE INDEX IF NOT EXISTS idx_otel_records_session_cursor
                 ON otel_records(session_id, cursor);
+                CREATE INDEX IF NOT EXISTS idx_otel_span_sessions_recorded
+                ON otel_span_sessions(recorded_at);
 
                 CREATE TRIGGER IF NOT EXISTS trg_session_time_insert
                 AFTER INSERT ON sessions
@@ -1027,6 +1034,21 @@ class ValueStore:
                 connection.execute(
                     "ALTER TABLE prompts ADD COLUMN usage_source TEXT NOT NULL DEFAULT 'otel_trace'"
                 )
+            session_columns = {
+                row["name"] for row in connection.execute("PRAGMA table_info(sessions)")
+            }
+            if self._legacy_schema_detected:
+                # Commit the pending flag with the column upgrade so an interrupted migration resumes on restart.
+                connection.execute(
+                    "INSERT OR IGNORE INTO store_metadata VALUES (?, '1')", (RUNTIME_MIGRATION_PENDING_KEY,)
+                )
+            for column, definition in (
+                ("surface", "TEXT NOT NULL DEFAULT 'other'"),
+                ("session_mode", "TEXT NOT NULL DEFAULT 'interactive'"),
+                ("exclusion_reason", "TEXT"),
+            ):
+                if column not in session_columns:
+                    connection.execute(f"ALTER TABLE sessions ADD COLUMN {column} {definition}")
             missing_time_rows = connection.execute(
                 """
                 SELECT sessions.experiment, sessions.completed_at
@@ -1042,139 +1064,286 @@ class ValueStore:
                     for row in missing_time_rows
                 ),
             )
-            self._remove_wrong_source_prompts(connection)
             initialize_indexing(connection)
             connection.commit()
 
     @staticmethod
-    def _otel_trace_rows(payload: Any, ingested_at: str) -> list[tuple[str, str, int, str, str]]:
+    def _span_attributes(items: Any) -> dict[str, Any]:
+        if not isinstance(items, list):
+            return {}
+        return _attributes([
+            item for item in items
+            if isinstance(item, dict) and isinstance(item.get("value"), dict)
+        ])
+
+    @classmethod
+    def _runtime_span_candidates(cls, payload: Any) -> tuple[list[dict[str, Any]], int]:
+        """Accept Copilot runtime GenAI spans; everything else stays outside the inbox."""
         if not isinstance(payload, dict) or not isinstance(payload.get("resourceSpans"), list):
             raise ValueError("OTLP trace payload must contain resourceSpans.")
-        records: list[tuple[str, str, int, str, str]] = []
+        candidates: list[dict[str, Any]] = []
+        dropped = 0
         for resource_span in payload["resourceSpans"]:
             if not isinstance(resource_span, dict):
                 continue
             resource = resource_span.get("resource")
-            resource_attributes = _attributes(
+            resource_attributes = cls._span_attributes(
                 resource.get("attributes") if isinstance(resource, dict) else None
             )
-            if resource_attributes.get("service.name") != "copilot-chat":
-                continue
-            session_id = resource_attributes.get("session.id")
-            if not isinstance(session_id, str) or not session_id:
-                continue
             scope_spans = resource_span.get("scopeSpans")
             if not isinstance(scope_spans, list):
                 continue
             for scope_span in scope_spans:
                 if not isinstance(scope_span, dict) or not isinstance(scope_span.get("spans"), list):
                     continue
+                scope = scope_span.get("scope")
+                runtime = is_runtime_resource(
+                    resource_attributes, scope.get("name") if isinstance(scope, dict) else None
+                )
                 for span in scope_span["spans"]:
                     if not isinstance(span, dict):
                         continue
+                    span_attributes = cls._span_attributes(span.get("attributes"))
                     started = _nanoseconds_to_milliseconds(span.get("startTimeUnixNano"))
-                    if started <= 0:
+                    raw_end = span.get("endTimeUnixNano")
+                    ended = started if raw_end is None else _nanoseconds_to_milliseconds(raw_end)
+                    # The worker discards spans that end before they start; storing them would leave
+                    # indexing waiting for a republication that never comes.
+                    if (
+                        not runtime or started <= 0 or ended < started
+                        or span_operation(span_attributes, span.get("name")) is None
+                    ):
+                        dropped += 1
                         continue
-                    trace_id = span.get("traceId")
-                    span_id = span.get("spanId")
-                    identity = "|".join((
-                        session_id,
-                        str(trace_id or ""),
-                        str(span_id or ""),
-                    )) if trace_id and span_id else "|".join((
-                        session_id,
-                        str(span.get("name") or ""),
-                        str(span.get("startTimeUnixNano") or ""),
-                    ))
-                    record_key = sha256(identity.encode("utf-8")).hexdigest()
-                    record = {
-                        "resourceSpans": [{
-                            **{
-                                key: resource_span[key]
-                                for key in ("resource", "schemaUrl")
-                                if key in resource_span
-                            },
-                            "scopeSpans": [{
-                                **{
-                                    key: scope_span[key]
-                                    for key in ("scope", "schemaUrl")
-                                    if key in scope_span
-                                },
-                                "spans": [span],
-                            }],
-                        }],
-                    }
-                    records.append((
-                        record_key,
-                        session_id,
-                        started,
-                        json.dumps(record, separators=(",", ":")),
-                        ingested_at,
-                    ))
-        return records
+                    conversation = span_attributes.get("gen_ai.conversation.id")
+                    candidates.append({
+                        "trace_id": str(span.get("traceId") or ""),
+                        "span_id": str(span.get("spanId") or ""),
+                        "parent_span_id": str(span.get("parentSpanId") or ""),
+                        "session_id": conversation if isinstance(conversation, str) and conversation else None,
+                        "started": started,
+                        "surface": resource_surface(resource_attributes),
+                        "mode": resource_mode(resource_attributes),
+                        "resource_span": resource_span,
+                        "scope_span": scope_span,
+                        "span": span,
+                    })
+        return candidates, dropped
 
-    def _insert_otel_records(self, records: list[tuple[str, str, int, str, str]]) -> int:
-        if not records:
-            return 0
+    @staticmethod
+    def _resolve_span_session(
+        connection: sqlite3.Connection,
+        payload_sessions: dict[tuple[str, str], str],
+        candidate: dict[str, Any],
+    ) -> str | None:
+        """Older runtimes omit the conversation ID on tool spans; join them through their parent span."""
+        trace_id = candidate["trace_id"]
+        if not trace_id:
+            return None
+        for span_id in (candidate["parent_span_id"], candidate["span_id"]):
+            if not span_id:
+                continue
+            session_id = payload_sessions.get((trace_id, span_id))
+            if session_id:
+                return session_id
+            row = connection.execute(
+                "SELECT session_id FROM otel_span_sessions WHERE trace_id = ? AND span_id = ?",
+                (trace_id, span_id),
+            ).fetchone()
+            if row:
+                return str(row[0])
+        known = {
+            session_id for (known_trace, _span), session_id in payload_sessions.items()
+            if known_trace == trace_id
+        }
+        known.update(str(row[0]) for row in connection.execute(
+            "SELECT DISTINCT session_id FROM otel_span_sessions WHERE trace_id = ? LIMIT 2",
+            (trace_id,),
+        ))
+        return next(iter(known)) if len(known) == 1 else None
+
+    def _insert_runtime_spans(self, candidates: list[dict[str, Any]], ingested_at: str) -> tuple[int, int]:
+        if not candidates:
+            return 0, 0
+        payload_sessions: dict[tuple[str, str], str] = {}
+        for candidate in candidates:
+            if candidate["session_id"] and candidate["trace_id"]:
+                for span_id in (candidate["span_id"], candidate["parent_span_id"]):
+                    if span_id:
+                        payload_sessions.setdefault((candidate["trace_id"], span_id), candidate["session_id"])
+        accepted = 0
+        unattributed = 0
+        recorded_at = time()
         with closing(self._connect()) as connection:
             connection.execute("BEGIN IMMEDIATE")
-            accepted = 0
             changed_sessions: dict[str, int] = {}
-            for record in records:
+            for candidate in candidates:
+                session_id = candidate["session_id"] or self._resolve_span_session(
+                    connection, payload_sessions, candidate,
+                )
+                if not session_id:
+                    unattributed += 1
+                    continue
+                trace_id, span_id, span = candidate["trace_id"], candidate["span_id"], candidate["span"]
+                identity = "|".join(("runtime", trace_id, span_id)) if trace_id and span_id else "|".join((
+                    "runtime", session_id, str(span.get("name") or ""), str(span.get("startTimeUnixNano") or ""),
+                ))
+                resource_span, scope_span = candidate["resource_span"], candidate["scope_span"]
+                record = {
+                    "resourceSpans": [{
+                        **({"schemaUrl": resource_span["schemaUrl"]} if "schemaUrl" in resource_span else {}),
+                        "resource": stamped_resource(
+                            resource_span.get("resource"), session_id, candidate["surface"], candidate["mode"],
+                        ),
+                        "scopeSpans": [{
+                            **{key: scope_span[key] for key in ("scope", "schemaUrl") if key in scope_span},
+                            "spans": [span],
+                        }],
+                    }],
+                }
                 inserted = connection.execute("""
                 INSERT INTO otel_records (
                     record_key, session_id, started_at_milliseconds, record_json, ingested_at
                 ) VALUES (?, ?, ?, ?, ?)
                 ON CONFLICT(record_key) DO NOTHING
                 RETURNING cursor
-                """, record).fetchone()
+                """, (
+                    sha256(identity.encode("utf-8")).hexdigest(),
+                    session_id,
+                    candidate["started"],
+                    json.dumps(record, separators=(",", ":")),
+                    ingested_at,
+                )).fetchone()
                 if inserted:
                     accepted += 1
-                    changed_sessions[record[1]] = inserted["cursor"]
-                    record_conversations(connection, record[1], record[3])
+                    changed_sessions[session_id] = inserted["cursor"]
+                if trace_id:
+                    for mapped_span in (span_id, candidate["parent_span_id"]):
+                        if mapped_span:
+                            connection.execute(
+                                "INSERT OR IGNORE INTO otel_span_sessions VALUES (?, ?, ?, ?)",
+                                (trace_id, mapped_span, session_id, recorded_at),
+                            )
             for session_id, cursor in changed_sessions.items():
                 enqueue_session(connection, session_id, cursor)
             connection.commit()
-        return accepted
+        return accepted, unattributed
 
     def ingest_otlp_traces(self, payload: Any) -> dict[str, int]:
         require_storage_capacity(self.database_path.parent)
-        records = self._otel_trace_rows(
-            payload, datetime.now(timezone.utc).isoformat()
+        candidates, dropped = self._runtime_span_candidates(payload)
+        accepted, unattributed = self._insert_runtime_spans(
+            candidates, datetime.now(timezone.utc).isoformat(),
         )
-        accepted = self._insert_otel_records(records)
-        return {"received": len(records), "accepted": accepted}
+        return {"received": len(candidates) + dropped, "accepted": accepted, "dropped": dropped + unattributed}
 
-    def _import_legacy_trace_archive_once(self) -> int:
+    def _prune_span_sessions(self) -> None:
+        with closing(self._connect()) as connection, connection:
+            connection.execute(
+                "DELETE FROM otel_span_sessions WHERE recorded_at < ?",
+                (time() - SPAN_SESSION_RETENTION_SECONDS,),
+            )
+
+    def _legacy_data_paths(self) -> list[Path]:
+        paths: list[Path] = []
+        if self.session_directory.exists():
+            for candidate in sorted(self.session_directory.iterdir()):
+                if not candidate.is_file():
+                    continue
+                if candidate.name == "state.json":
+                    try:
+                        state = json.loads(candidate.read_text(encoding="utf-8"))
+                    except (OSError, UnicodeError, ValueError):
+                        state = None
+                    if isinstance(state, dict) and state.get("captureGeneration") == RUNTIME_CAPTURE_GENERATION:
+                        continue
+                paths.append(candidate)
+        paths.extend(_trace_archive_paths(self.trace_archive))
+        return paths
+
+    def _migrate_to_runtime_capture(self) -> None:
+        """Back up and retire VS Code-derived evidence once, before runtime-only collection begins."""
         with closing(self._connect()) as connection:
-            completed = connection.execute(
-                "SELECT 1 FROM store_metadata WHERE key = ?",
-                (LEGACY_TRACE_IMPORT_KEY,),
-            ).fetchone()
-        if completed:
-            return 0
-
-        before = _trace_archive_snapshot(self.trace_archive)
-        ingested_at = datetime.now(timezone.utc).isoformat()
-        accepted = 0
-        batch: list[tuple[str, str, int, str, str]] = []
-        for archive_path, _modified, _size in before:
-            for payload in _iter_json_lines(archive_path):
-                batch.extend(self._otel_trace_rows(payload, ingested_at))
-                if len(batch) >= OTEL_IMPORT_BATCH_SIZE:
-                    accepted += self._insert_otel_records(batch)
-                    batch.clear()
-        accepted += self._insert_otel_records(batch)
-
-        if before == _trace_archive_snapshot(self.trace_archive):
-            with closing(self._connect()) as connection:
-                connection.execute("BEGIN IMMEDIATE")
+            if connection.execute(
+                "SELECT 1 FROM store_metadata WHERE key = ?", (RUNTIME_MIGRATION_KEY,)
+            ).fetchone():
+                return
+            legacy = self._legacy_schema_detected or connection.execute(
+                "SELECT 1 FROM store_metadata WHERE key = ?", (RUNTIME_MIGRATION_PENDING_KEY,)
+            ).fetchone() is not None
+            counts = {
+                table: connection.execute(f"SELECT COUNT(*) FROM {table}").fetchone()[0]
+                for table in ("otel_records", "sessions", "prompts")
+            }
+        legacy_paths = self._legacy_data_paths() if legacy else []
+        backup_path: Path | None = None
+        if legacy:
+            stamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
+            backups = self.database_path.parent.parent / "backups"
+            backup_path = backups / f"vscode-legacy-{stamp}"
+            attempt = 1
+            # A resumed migration must never reuse a folder that already holds an earlier attempt's database copy.
+            while (backup_path / self.database_path.name).exists():
+                attempt += 1
+                backup_path = backups / f"vscode-legacy-{stamp}-{attempt}"
+            backup_path.mkdir(parents=True, exist_ok=True)
+            backup_database(self.database_path, backup_path / self.database_path.name)
+            for legacy_path in legacy_paths:
+                folder = "sessions" if legacy_path.parent == self.session_directory else "otel"
+                (backup_path / folder).mkdir(exist_ok=True)
+                shutil.copy2(legacy_path, backup_path / folder / legacy_path.name)
+            # Retire backed-up files before the marker commits, so a crash never leaves legacy artifacts to re-index.
+            for legacy_path in legacy_paths:
+                legacy_path.unlink(missing_ok=True)
+        with closing(self._connect()) as connection:
+            connection.execute("BEGIN IMMEDIATE")
+            if legacy:
+                for statement in (
+                    "DELETE FROM prompts",
+                    "DELETE FROM session_time_index",
+                    "DELETE FROM sessions",
+                    "DELETE FROM otel_records",
+                    "DELETE FROM otel_span_sessions",
+                    "DELETE FROM indexing_changes",
+                    "DELETE FROM indexing_work",
+                    "DELETE FROM indexing_artifacts",
+                    "DROP TABLE IF EXISTS indexing_conversations",
+                    "DROP TABLE IF EXISTS indexing_logs",
+                    "DELETE FROM store_metadata WHERE key LIKE 'indexing_%' OR key = 'legacy_trace_inbox_import_v1'",
+                ):
+                    connection.execute(statement)
                 connection.execute(
-                    "INSERT OR REPLACE INTO store_metadata (key, value) VALUES (?, ?)",
-                    (LEGACY_TRACE_IMPORT_KEY, datetime.now(timezone.utc).isoformat()),
+                    "DELETE FROM store_metadata WHERE key = ?", (RUNTIME_MIGRATION_PENDING_KEY,)
                 )
-                connection.commit()
-        return accepted
+                connection.execute(
+                    "INSERT OR REPLACE INTO store_metadata VALUES ('indexing_queue_v1', 'complete')"
+                )
+            connection.execute(
+                "INSERT OR REPLACE INTO store_metadata VALUES (?, ?)",
+                (RUNTIME_MIGRATION_KEY, json.dumps({
+                    "completedAt": datetime.now(timezone.utc).isoformat(),
+                    "backupPath": str(backup_path) if backup_path else None,
+                    "clearedSessions": counts["sessions"] if legacy else 0,
+                }, separators=(",", ":"))),
+            )
+            connection.commit()
+
+    def runtime_migration_status(self) -> dict[str, Any]:
+        with closing(self._connect()) as connection:
+            row = connection.execute(
+                "SELECT value FROM store_metadata WHERE key = ?", (RUNTIME_MIGRATION_KEY,)
+            ).fetchone()
+        if not row:
+            return {"completed": False, "backupPath": None, "clearedSessions": 0}
+        try:
+            value = json.loads(row[0])
+        except ValueError:
+            value = {}
+        return {
+            "completed": True,
+            "backupPath": value.get("backupPath") if isinstance(value, dict) else None,
+            "clearedSessions": _nonnegative_integer(value.get("clearedSessions")) if isinstance(value, dict) else 0,
+        }
 
     def otel_records(self, after: int = 0, limit: int = 1_000) -> dict[str, Any]:
         bounded_limit = min(10_000, max(1, limit))
@@ -1205,56 +1374,15 @@ class ValueStore:
             "hasMore": has_more,
         }
 
-    @staticmethod
-    def _remove_wrong_source_prompts(connection: sqlite3.Connection) -> None:
-        connection.execute(
-            """
-            DELETE FROM prompts
-            WHERE usage_source = 'otel_trace'
-            AND experiment IN (
-                SELECT experiment
-                FROM sessions
-                WHERE json_extract(usage_json, '$.source') = 'copilot_turn_log'
-            )
-            """
-        )
-
-    def _refresh_prompt_source_invariant(self) -> None:
-        with closing(self._connect()) as connection:
-            self._remove_wrong_source_prompts(connection)
-            connection.commit()
-
     def index_once(self) -> None:
         with self._lock:
-            self._import_legacy_trace_archive_once()
             with closing(self._connect()) as connection:
                 bootstrap_indexing(connection)
             self.session_directory.mkdir(parents=True, exist_ok=True)
             self._index_sessions()
-            log_discovery_recovered = False
-            if monotonic() >= self._log_retry_at:
-                previous_log_error = self._log_discovery_error
-                try:
-                    self._refresh_chat_log_index()
-                    self._log_discovery_error = None
-                    log_discovery_recovered = previous_log_error is not None
-                except (OSError, IndexingBlocked):
-                    self._log_discovery_error = "log_discovery_unavailable"
-                    self._log_retry_at = monotonic() + 30
+            self._prune_span_sessions()
             with closing(self._connect()) as connection:
-                if self._log_discovery_error is None:
-                    stage_log_changes(
-                        connection,
-                        self._chat_log_index,
-                        force=log_discovery_recovered,
-                    )
-                self._chat_session_ids.update(row[0] for row in connection.execute(
-                    "SELECT DISTINCT conversation_id FROM indexing_conversations"
-                ))
-                config_signature = sha256(json.dumps({
-                    "config": self._config(),
-                    "promptIndexVersion": PROMPT_INDEX_VERSION,
-                }, sort_keys=True).encode("utf-8")).hexdigest()
+                config_signature = sha256(json.dumps(self._config(), sort_keys=True).encode("utf-8")).hexdigest()
                 previous = connection.execute(
                     "SELECT value FROM store_metadata WHERE key = 'indexing_config'"
                 ).fetchone()
@@ -1271,39 +1399,12 @@ class ValueStore:
                         INSERT INTO store_metadata VALUES ('indexing_last_discovery', ?)
                         ON CONFLICT(key) DO UPDATE SET value = excluded.value
                     """, (str(time()),))
-                    connection.execute("""
-                        INSERT INTO store_metadata VALUES ('indexing_discovery_error', ?)
-                        ON CONFLICT(key) DO UPDATE SET value = excluded.value
-                    """, (self._log_discovery_error or "",))
             self._index_prompts()
-            self._chat_log_signature = self._current_chat_log_signature()
             self._prune_prompts()
 
     def indexing_status(self, experiment: str | None = None) -> dict[str, Any]:
         with closing(self._connect()) as connection:
             return indexing_status(connection, experiment)
-
-    def _refresh_chat_log_index(self) -> None:
-        if self.isolate_log_io and self.chat_log_root is not None:
-            self._chat_log_index = {
-                identifier: (Path(entry[0]), entry[1], entry[2])
-                for identifier, entry in isolated_log_io("discover", self.chat_log_root).items()
-            }
-        else:
-            self._chat_log_index = discover_logs(self.chat_log_root)
-
-    def _chat_log_path(self, chat_session_id: str) -> Path | None:
-        entry = self._chat_log_index.get(chat_session_id)
-        return entry[0] if entry else None
-
-    def _current_chat_log_signature(self) -> tuple[tuple[str, int, int], ...]:
-        signature: list[tuple[str, int, int]] = []
-        for chat_session_id in sorted(self._chat_session_ids):
-            entry = self._chat_log_index.get(chat_session_id)
-            if entry:
-                path, modified, size = entry
-                signature.append((str(path), modified, size))
-        return tuple(signature)
 
     def _prompt_storage_config(self) -> tuple[bool, int]:
         config = self._config()
@@ -1352,15 +1453,25 @@ class ValueStore:
                     if parsed_started_at is not None and parsed_completed_at is not None
                     else 0
                 )
+                raw_surface = artifact.get("surface")
+                raw_mode = artifact.get("sessionMode")
+                raw_exclusion = artifact.get("exclusionReason")
                 connection.execute(
                     """
-                    INSERT INTO sessions VALUES (
+                    INSERT INTO sessions (
+                        experiment, started_at, completed_at, status, duration_seconds,
+                        ai_cost_usd, ai_credits, chat_spans, input_tokens,
+                        cache_read_tokens, uncached_input_tokens, output_tokens,
+                        reasoning_tokens, retained_source_characters,
+                        source_evidence_complete, usage_json, source_json,
+                        benchmark_json, updated_at, surface, session_mode, exclusion_reason
+                    ) VALUES (
                         :experiment, :started_at, :completed_at, :status, :duration_seconds,
                         :ai_cost_usd, :ai_credits, :chat_spans, :input_tokens,
                         :cache_read_tokens, :uncached_input_tokens, :output_tokens,
                         :reasoning_tokens, :retained_source_characters,
                         :source_evidence_complete, :usage_json, :source_json,
-                        :benchmark_json, :updated_at
+                        :benchmark_json, :updated_at, :surface, :session_mode, :exclusion_reason
                     )
                     ON CONFLICT(experiment) DO UPDATE SET
                         started_at=excluded.started_at,
@@ -1380,7 +1491,10 @@ class ValueStore:
                         usage_json=excluded.usage_json,
                         source_json=excluded.source_json,
                         benchmark_json=excluded.benchmark_json,
-                        updated_at=excluded.updated_at
+                        updated_at=excluded.updated_at,
+                        surface=excluded.surface,
+                        session_mode=excluded.session_mode,
+                        exclusion_reason=excluded.exclusion_reason
                     """,
                     {
                         "experiment": artifact["experiment"],
@@ -1405,6 +1519,11 @@ class ValueStore:
                             if raw_benchmark is not None else None
                         ),
                         "updated_at": datetime.now(timezone.utc).isoformat(),
+                        "surface": raw_surface if raw_surface in SESSION_SURFACES else "other",
+                        "session_mode": "automated" if raw_mode == "automated" else "interactive",
+                        "exclusion_reason": (
+                            raw_exclusion if raw_exclusion == "automated_session" else None
+                        ),
                     },
                 )
                 connection.execute(
@@ -1415,58 +1534,6 @@ class ValueStore:
                     """,
                     (artifact["experiment"], _iso_epoch(completed_at)),
                 )
-    def _trace_sessions(
-        self,
-        trace_paths: Iterable[Path] | None = None,
-    ) -> dict[str, dict[str, Any]]:
-        if trace_paths is not None:
-            return collect_trace_sessions(trace_paths)
-        with closing(self._connect()) as connection:
-            rows = connection.execute(
-                "SELECT record_json FROM otel_records ORDER BY cursor"
-            ).fetchall()
-        if rows:
-            return collect_trace_sessions_from_records(
-                _json_loads(row["record_json"]) for row in rows
-            )
-        return collect_trace_sessions(_trace_archive_paths(self.trace_archive))
-
-    def _current_trace_signature(self) -> object:
-        with closing(self._connect()) as connection:
-            cursor = connection.execute(
-                "SELECT COALESCE(MAX(cursor), 0) AS cursor FROM otel_records"
-            ).fetchone()["cursor"]
-        return ("inbox", cursor) if cursor else _trace_archive_signature(
-            _trace_archive_snapshot(self.trace_archive)
-        )
-
-    def _stable_trace_sessions(
-        self,
-        max_attempts: int = 3,
-    ) -> tuple[dict[str, dict[str, Any]], object]:
-        with closing(self._connect()) as connection:
-            rows = connection.execute(
-                "SELECT cursor, record_json FROM otel_records ORDER BY cursor"
-            ).fetchall()
-        if rows:
-            return (
-                collect_trace_sessions_from_records(
-                    _json_loads(row["record_json"]) for row in rows
-                ),
-                ("inbox", rows[-1]["cursor"]),
-            )
-        for _attempt in range(max_attempts):
-            before = _trace_archive_snapshot(self.trace_archive)
-            trace_sessions = self._trace_sessions(
-                [candidate for candidate, _modified, _size in before]
-            )
-            after = _trace_archive_snapshot(self.trace_archive)
-            if before == after:
-                return trace_sessions, _trace_archive_signature(after)
-        raise RuntimeError(
-            f"Trace archive changed during {max_attempts} consecutive reads."
-        )
-
     def _scrub_prompt_content(self) -> None:
         with closing(self._connect()) as connection:
             connection.execute("UPDATE prompts SET content = '' WHERE content <> ''")
@@ -1489,23 +1556,14 @@ class ValueStore:
                 break
             try:
                 artifact, groups = (
-                    prepare_in_process(
-                        self.database_path, dict(work), content_enabled,
-                        self._chat_log_index, self._log_discovery_error,
-                    ) if self.isolate_log_io else self._prepare_index_work(work, content_enabled)
+                    prepare_in_process(self.database_path, dict(work), content_enabled)
+                    if self.isolate_preparation else self._prepare_index_work(work, content_enabled)
                 )
                 with closing(self._connect()) as connection, connection:
                     connection.execute("BEGIN IMMEDIATE")
                     self._index_sessions(connection, [artifact])
                     if groups is not None:
                         write_prompts(connection, artifact["experiment"], groups)
-                    else:
-                        usage = artifact.get("usage")
-                        source = "copilot_turn_log" if isinstance(usage, dict) and usage.get("source") == "copilot_turn_log" else "otel_trace"
-                        connection.execute(
-                            "DELETE FROM prompts WHERE experiment = ? AND usage_source != ?",
-                            (artifact["experiment"], source),
-                        )
                     connection.execute(
                         "UPDATE indexing_work SET experiment = ? WHERE work_key = ?",
                         (artifact["experiment"], work["work_key"]),
@@ -1560,64 +1618,9 @@ class ValueStore:
         started = _iso_milliseconds(str(artifact.get("startedAt") or ""))
         if started > 0 and trace["start"] > started:
             raise IndexingBlocked("incomplete_retained_history")
-        usage = artifact.get("usage") or {}
-        direct_turns: list[dict[str, Any]] = []
-        direct_usage = isinstance(usage, dict) and usage.get("source") == "copilot_turn_log"
-        if self._log_discovery_error:
-            if direct_usage:
-                raise IndexingBlocked(self._log_discovery_error)
-        else:
-            ended = _iso_milliseconds(str(artifact.get("completedAt") or ""))
-            identifiers = conversation_ids(trace)
-            if direct_usage and not identifiers:
-                raise IndexingBlocked("waiting_for_logs")
-            for identifier in identifiers:
-                path = self._chat_log_path(identifier)
-                if path is None:
-                    if direct_usage:
-                        raise IndexingBlocked("waiting_for_logs")
-                    continue
-                try:
-                    turns = (
-                        isolated_log_io("turns", path, started, ended)
-                        if self.isolate_log_io else _read_copilot_turns(path, started, ended)
-                    )
-                except (IndexingBlocked, OSError, RecursionError, UnicodeError, ValueError):
-                    if direct_usage:
-                        raise
-                    continue
-                valid_turns = all(
-                    prompt_group_counters_valid({**turn, "ordinal": 0})
-                    for turn in turns
-                )
-                if direct_usage and not turns:
-                    raise IndexingBlocked("waiting_for_logs")
-                if not valid_turns:
-                    if direct_usage:
-                        raise IndexingBlocked("invalid_prompt_counters")
-                    continue
-                direct_turns.extend(
-                    {**turn, "conversation_id": identifier}
-                    for turn in turns
-                )
-        groups = group_prompts(
-            trace,
-            direct_turns,
-            content_enabled,
-            include_unmatched_otel=not direct_usage,
-        )
+        groups = group_prompts(trace)
         if not all(prompt_group_counters_valid(group) for group in groups):
             raise IndexingBlocked("invalid_prompt_counters")
-        if direct_usage and input_cursor is not None:
-            counters = {
-                "model_requests": "chatSpans", "input_tokens": "inputTokens",
-                "cache_read_tokens": "cacheReadTokens", "output_tokens": "outputTokens",
-                "reasoning_tokens": "reasoningTokens",
-            }
-            if any(sum(group[field] for group in groups) != usage.get(key) for field, key in counters.items()):
-                raise IndexingBlocked("waiting_for_worker")
-            if not isclose(sum(group["ai_credits"] for group in groups), _number(usage.get("aiCredits")), rel_tol=1e-9, abs_tol=1e-9):
-                raise IndexingBlocked("waiting_for_worker")
         return artifact, groups
 
     def _session_payload(
@@ -1681,6 +1684,9 @@ class ValueStore:
             "startedAt": row["started_at"],
             "completedAt": row["completed_at"],
             "status": row["status"],
+            "surface": row["surface"],
+            "sessionMode": row["session_mode"],
+            "exclusionReason": row["exclusion_reason"],
             "durationSeconds": _number(row["duration_seconds"]),
             "aiCostUsd": _number(row["ai_cost_usd"]),
             "aiCredits": _number(row["ai_credits"]),
@@ -1731,12 +1737,15 @@ class ValueStore:
             }
         model_config_values = self._model_config_values()
         sessions = []
+        modeled_portfolio_sessions = []
         benchmarked_sessions = []
         totals = {
             "sessions": 0,
             "prompts": 0,
             "durationSeconds": 0.0,
             "aiCostUsd": 0.0,
+            "automatedSessions": 0,
+            "automatedAiCostUsd": 0.0,
             "taskTimeReduction": None,
             "estimatedManualMinutes": 0.0,
             "estimatedMinutesSaved": 0.0,
@@ -1760,6 +1769,16 @@ class ValueStore:
             payload["promptCount"] = prompt_summary["count"] if prompt_summary else 0
             payload["latestMessageAt"] = prompt_summary["latest_message_at"] if prompt_summary else None
             sessions.append(payload)
+            if payload["sessionMode"] == "automated":
+                # Automated sessions report observed spend only; the developer-time model excludes them.
+                totals["automatedSessions"] += 1
+                automated_cost = _checked_add(totals["automatedAiCostUsd"], payload["aiCostUsd"])
+                if automated_cost is None:
+                    aggregate_valid = False
+                else:
+                    totals["automatedAiCostUsd"] = automated_cost
+                continue
+            modeled_portfolio_sessions.append(payload)
             totals["sessions"] += 1
             totals["prompts"] += payload["promptCount"]
             for key, value in (
@@ -1789,7 +1808,7 @@ class ValueStore:
                         totals[key] = result
                 benchmarked_sessions.append(payload)
 
-        totals["durationSeconds"] = _union_duration_seconds(sessions)
+        totals["durationSeconds"] = _union_duration_seconds(modeled_portfolio_sessions)
         modeled_calculation_valid = aggregate_valid
         if benchmarked_sessions:
             if model_config_values is None:
@@ -2010,7 +2029,7 @@ class ValueStore:
                 "deliveryCostReduction": "R_s = Delta_C_gross,s / C_manual,s",
                 "benefit": "B_s = (T_saved,s / 60) * H * rho",
                 "breakEven": "T_manual,break-even = T_AI + C_AI / ((H / 60) * rho)",
-                "aiCost": "C_AI = sum(copilot_usage_nano_aiu) / 1e11",
+                "aiCost": "C_AI = sum(github.copilot.nano_aiu over chat spans) / 1e11",
                 "roi": "ROI_s = (B_s - C_AI) / C_AI",
             },
         }
