@@ -802,6 +802,9 @@ describe('session and prompt routes', () => {
     expect(screen.getByRole('heading', { name: 'Source evidence' })).toBeVisible();
     expect(screen.getByText('Source + OTel')).toBeVisible();
     expect(screen.getByRole('heading', { name: 'Token and model evidence' })).toBeVisible();
+    const modelTable = screen.getByRole('table', { name: 'Model token usage' });
+    expect(within(modelTable).getByRole('rowheader', { name: 'model-a' })).toBeVisible();
+    expect(within(modelTable).getAllByRole('cell').map((cell) => cell.textContent)).toEqual(['4', '20,000', '10,000', '10,000', '1,500', '500', '100 cr']);
     expect(screen.getAllByText('-1.0m').some((element) => element.classList.contains('negative'))).toBe(true);
 
     await user.click(screen.getByRole('button', { name: /Level 3.*Prompts/ }));
@@ -815,6 +818,33 @@ describe('session and prompt routes', () => {
     expect(await screen.findByRole('heading', { name: 'Prompts in this session' })).toBeVisible();
     await user.click(screen.getByRole('link', { name: 'Overall' }));
     expect(await screen.findByRole('heading', { name: 'Overall Copilot value' })).toBeVisible();
+  });
+
+  test('shows exact token usage for every session model across scenario changes', async () => {
+    const usage = createUsage();
+    const model = usage.models![0];
+    usage.models = [
+      { ...model, model: 'claude-opus-5.5', requests: 3, inputTokens: 19_000, cacheReadTokens: 9_000, outputTokens: 1_400, reasoningTokens: 450, aiCredits: 99, aiCostUsd: 0.99 },
+      { ...model, model: 'claude-haiku-5.5', requests: 1, inputTokens: 1_000, cacheReadTokens: 1_000, uncachedInputTokens: 0, outputTokens: 100, reasoningTokens: 50, aiCredits: 1, aiCostUsd: 0.01 }
+    ];
+    installFetch({ sessionValue: createSession({ usage }) });
+    const user = await renderRoute('/sessions/session-a');
+    const table = await screen.findByRole('table', { name: 'Model token usage' });
+    const rows = within(table).getAllByRole('row').slice(1);
+    expect(within(rows[0]).getByRole('rowheader')).toHaveTextContent('claude-opus-5.5');
+    expect(within(rows[0]).getAllByRole('cell').map((cell) => cell.textContent)).toEqual(['3', '19,000', '9,000', '10,000', '1,400', '450', '99 cr']);
+    expect(within(rows[1]).getByRole('rowheader')).toHaveTextContent('claude-haiku-5.5');
+    expect(within(rows[1]).getAllByRole('cell').map((cell) => cell.textContent)).toEqual(['1', '1,000', '1,000', '0', '100', '50', '1 cr']);
+    const originalUsage = table.textContent;
+    await user.click(screen.getByRole('button', { name: 'Optimistic', exact: true }));
+    await waitFor(() => expect(screen.getByRole('table', { name: 'Model token usage' }).textContent).toBe(originalUsage));
+  });
+
+  test.each([undefined, []])('shows unavailable per-model evidence instead of inventing usage (%s)', async (models) => {
+    installFetch({ sessionValue: createSession({ usage: { ...createUsage(), models } }) });
+    await renderRoute('/sessions/session-a');
+    expect(await screen.findByText('Per-model usage unavailable.')).toBeVisible();
+    expect(screen.queryByRole('table', { name: 'Model token usage' })).not.toBeInTheDocument();
   });
 
   test('explains that runtime telemetry carries no prompt text', async () => {

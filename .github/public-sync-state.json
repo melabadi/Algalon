@@ -158,7 +158,7 @@
     },
     "docs/local-deployment/README.md": {
       "mode": "100644",
-      "sha256": "8cfc3be68bbe908addfb5a06ac37b5f05b662c992be689ce3bd69e06c77d8e2a"
+      "sha256": "8022f550b9dda87c10fa639d85c6ff6b74812ee4715613e1fe4ed9650e75f487"
     },
     "docs/methodology.md": {
       "mode": "100644",
@@ -170,7 +170,7 @@
     },
     "docs/session-insights.md": {
       "mode": "100644",
-      "sha256": "50c22635e97dfc2d17430a951de80e0ef1728f758cb652c9ae82e4497c65a2fd"
+      "sha256": "7323f55b323c5fd10d6ae2c46cf35665cdf13191caaeec1baaa8c0d2000e49be"
     },
     "package-lock.json": {
       "mode": "100644",
@@ -498,7 +498,7 @@
     },
     "web/src/features/sessions/SessionViews.tsx": {
       "mode": "100644",
-      "sha256": "695bec9634224f1df0bc10d6e3c3afe5b289f16d3181aa0e00c573904e9ff214"
+      "sha256": "92329447feea25b8ca6c5c20c4db5602289bb9f4683fd735b51e1751025fb0ea"
     },
     "web/src/hooks/useLoad.ts": {
       "mode": "100644",
@@ -530,7 +530,7 @@
     },
     "web/src/styles.css": {
       "mode": "100644",
-      "sha256": "1ab906b3ee3affa581298a7d90a97a7e59b8497af85d01751e407c7b8f8650cc"
+      "sha256": "184a721877876c3bb51b8b6b76d79aaf6bf1525c46edece49e9231d544ff2731"
     },
     "web/src/types.ts": {
       "mode": "100644",
@@ -542,7 +542,7 @@
     },
     "web/test/App.test.tsx": {
       "mode": "100644",
-      "sha256": "95301f9bd8e3529f26205a174385ece737c29baa26932b999f1f2f7ed764863b"
+      "sha256": "00faa6543f4d6fce8b1bb64c5b36daddcb646ca8eaaf10bd02df2fcf62dbfff6"
     },
     "web/test/CalibrationNumberInput.test.tsx": {
       "mode": "100644",
