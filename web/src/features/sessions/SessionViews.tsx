@@ -301,7 +301,21 @@ function PhaseTable({ result, usage }: { result: ScenarioResult | null; usage: S
 function TokenStrip({ session }: { session: Session }) {
   const total = Math.max(session.tokens.cacheRead + session.tokens.uncachedInput + session.tokens.output + session.tokens.reasoning, 1);
   const values = [session.tokens.cacheRead, session.tokens.uncachedInput, session.tokens.output, session.tokens.reasoning];
-  return <div className="token-strip">{values.map((value, index) => <span key={index} className={`token token-${index}`} style={{ width: `${value / total * 100}%` }} />)}</div>;
+  return <><div className="token-strip">{values.map((value, index) => <span key={index} className={`token token-${index}`} style={{ width: `${value / total * 100}%` }} />)}</div><ModelUsageTable models={session.usage.models} /></>;
+}
+
+function ModelUsageTable({ models }: { models: Session['usage']['models'] }) {
+  if (!models?.length) return <p role="status">Per-model usage unavailable.</p>;
+  return <div className="table-scroll" role="region" aria-label="Model token usage" tabIndex={0}>
+    <table className="model-usage-table" aria-label="Model token usage">
+      <thead><tr>{['Model', 'Requests', 'Input tokens', 'Cache-read input', 'Uncached input', 'Output tokens', 'Reasoning tokens', 'AI credits'].map((label) => <th key={label} scope="col">{label}</th>)}</tr></thead>
+      <tbody>{models.map((model) => <tr key={model.model}>
+        <th scope="row">{model.model}</th>
+        {[model.requests, model.inputTokens, model.cacheReadTokens, model.uncachedInputTokens, model.outputTokens, model.reasoningTokens].map((value, index) => <td key={index}>{value.toLocaleString('en-US')}</td>)}
+        <td>{credits(model.aiCredits)}</td>
+      </tr>)}</tbody>
+    </table>
+  </div>;
 }
 
 export function PromptsView({ experiment, scenario, calibration, navigate }: { experiment: string; scenario: ScenarioSelection; calibration?: SavedCalibration; navigate: Navigate }) {

@@ -2,6 +2,14 @@
 
 Session Insights is a local operational diagnostic over authoritative session usage. It does not produce a productivity score, change ROI, identify individual sessions, or depend on the prompt read model.
 
+## Session model breakdown
+
+Open a session's **Token and model evidence** section to see one row per recorded model, with model requests, input tokens, cache-read input, uncached input, output tokens, reasoning tokens, and AI credits. Token and request counts are shown without compact rounding. The table scrolls within its section on narrow screens.
+
+Input tokens include cache-read input; uncached input excludes that cached portion. These are observed runtime counters, and changing the scenario or custom calibration leaves them unchanged. Mixed-model sessions retain separate usage rows, but modeled ROI remains a whole-session result rather than being attributed to individual models.
+
+When per-model evidence is absent, the section shows **Per-model usage unavailable**. It does not infer a model from the client selection or divide session totals among guessed models.
+
 ## Integrity boundary
 
 The worker publishes one complete usage object for each authoritative Copilot runtime session, keyed by `gen_ai.conversation.id` and aggregated from that session's unique runtime `chat` and `execute_tool` spans. The object satisfies one contract: source, requests, input/cache/uncached/output/reasoning tokens, AI credits and cost, a reconciled per-model breakdown, elapsed/engaged/active time, activity density, and complete phase evidence. Every model row must originate from at least one request. Phase token evidence requires a model span, tool runtime requires a tool call, and active phase time requires one of those origins. Model and session cost must match the observed conversion of 100 AI credits per US dollar. Each phase's allocated time must equal engaged time multiplied by that phase's share of active time. A zero-request session remains valid when every request-bound value is zero; independent tool spans may still contribute phase tool calls, while phase model and token totals cannot exceed the session totals. Explicitly automated sessions remain in Insights because Insights describes observed usage, not modeled value.

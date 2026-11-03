@@ -522,6 +522,9 @@ th:first-child, td:first-child { text-align: left; }
 th { color: var(--muted); font-weight: 500; }
 .session-table { min-width: 1120px; }
 .model-cohort-table { min-width: 760px; }
+.model-usage-table { min-width: 900px; }
+.model-usage-table th:not(:first-child), .model-usage-table td { text-align: right; white-space: nowrap; }
+.model-usage-table tbody th { overflow-wrap: anywhere; min-width: 180px; }
 .sortable-header {
   width: 100%;
   padding: 0;

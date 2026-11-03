@@ -276,6 +276,8 @@ The app's **Methodology > Calibration workspace** exposes every numeric input us
 
 Custom is disabled until a saved set is selected in Methodology. The app imports the same shared TypeScript benchmark module as the worker, so it does not duplicate the formula. Observed time, cost, tokens, tools, prompts, and source completeness never change.
 
+Open **Session detail > Token and model evidence** to inspect the models actually recorded by runtime telemetry and their individual requests, input/cache-read/uncached/output/reasoning token counts, and AI credits. These observed rows do not change with the selected scenario. If the breakdown is missing, the app reports it as unavailable rather than guessing. See [Session model breakdown](../session-insights.md#session-model-breakdown) for accounting details and limits.
+
 To use a local calibration against retained session data:
 
 1. Open **Methodology > Calibration workspace**.
