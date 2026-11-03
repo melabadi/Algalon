@@ -1,9 +1,8 @@
 <svg xmlns="http://www.w3.org/2000/svg" width="1320" height="620" viewBox="0 0 1320 620" role="img" aria-labelledby="diagram-title diagram-description">
   <title id="diagram-title">Algalon local architecture</title>
-  <desc id="diagram-description">Copilot sends OTLP to the OpenTelemetry Collector. Scrubbed traces are committed by FastAPI to SQLite. The TypeScript worker reads cursor pages through FastAPI and stores modeled session results in local files for API indexing. React reads only FastAPI. The Collector and worker publish aggregate metrics to VictoriaMetrics, which optional Grafana reads. Matched VS Code logs are optional read-only inputs to the worker and API. Host services bind only to loopback.</desc>
+  <desc id="diagram-description">Copilot runtime clients (Copilot CLI, Copilot SDK apps, the Copilot app, and the VS Code Copilot harness) send OTLP to the OpenTelemetry Collector, which keeps only Copilot runtime telemetry. Scrubbed traces are committed by FastAPI to SQLite. The TypeScript worker reads cursor pages through FastAPI and stores modeled session results in local files for API indexing. React reads only FastAPI. The Collector and worker publish aggregate metrics to VictoriaMetrics, which optional Grafana reads. Host services bind only to loopback.</desc>
   <defs>
     <marker id="arrow" markerWidth="8" markerHeight="8" refX="7" refY="4" orient="auto" markerUnits="strokeWidth"><path d="M0 0L8 4L0 8Z" fill="#5bc0eb"/></marker>
-    <marker id="optional-arrow" markerWidth="8" markerHeight="8" refX="7" refY="4" orient="auto" markerUnits="strokeWidth"><path d="M0 0L8 4L0 8Z" fill="#8fd694"/></marker>
   </defs>
   <rect width="1320" height="620" fill="#0d1014"/>
   <g font-family="Aptos, IBM Plex Sans, sans-serif" fill="#f1f4f7">
@@ -20,30 +19,24 @@
       <path data-from="worker" data-to="metrics" d="M680 436H622"/>
       <path data-from="metrics" data-to="grafana" d="M360 436H282"/>
     </g>
-    <g fill="none" stroke="#8fd694" stroke-width="2" stroke-dasharray="5 5" marker-end="url(#optional-arrow)">
-      <path data-from="turn-logs" data-to="worker" d="M1020 436H952"/>
-      <path data-from="turn-logs" data-to="api" d="M1150 380V286H968V196H950"/>
-    </g>
     <g font-size="12" fill="#9ba7b4" text-anchor="middle">
       <text x="310" y="147">OTLP</text>
       <text x="645" y="133">Scrubbed<tspan x="645" dy="16">spans</tspan></text>
       <text x="978" y="147">Local API</text>
       <text x="322" y="417">Query</text>
       <text x="650" y="405">Modeled<tspan x="650" dy="16">metrics</tspan></text>
-      <text x="984" y="417" fill="#8fd694">Read-only</text>
     </g>
     <g font-size="13" fill="#9ba7b4">
       <text x="504" y="298">OTel metrics</text>
       <text x="751" y="322">Cursor pages</text>
       <text x="890" y="252">Results via<tspan x="890" dy="17">local files</tspan></text>
-      <text x="1050" y="272" fill="#8fd694">Read-only</text>
     </g>
 
     <g id="copilot">
       <rect x="40" y="110" width="230" height="112" rx="6" fill="#13171c" stroke="#2b333c"/>
       <text x="60" y="138" font-size="12" fill="#5bc0eb">SOURCE</text>
-      <text x="60" y="168" font-size="20" font-weight="700">VS Code + Copilot</text>
-      <text x="60" y="195" font-size="14" fill="#9ba7b4">Any local repository</text>
+      <text x="60" y="168" font-size="20" font-weight="700">Copilot runtime</text>
+      <text x="60" y="195" font-size="14" fill="#9ba7b4">CLI, SDK, app, or VS Code</text>
     </g>
     <g id="collector">
       <rect x="360" y="110" width="250" height="112" rx="6" fill="#13171c" stroke="#5bc0eb"/>
@@ -81,13 +74,7 @@
       <text x="700" y="438" font-size="20" font-weight="700">TypeScript worker</text>
       <text x="700" y="465" font-size="14" fill="#9ba7b4">Phases, scenarios, and value</text>
     </g>
-    <g id="turn-logs">
-      <rect x="1020" y="380" width="260" height="112" rx="6" fill="#13171c" stroke="#8fd694" stroke-dasharray="5 5"/>
-      <text x="1040" y="408" font-size="12" fill="#8fd694">OPTIONAL LOCAL INPUT</text>
-      <text x="1040" y="438" font-size="19" font-weight="700">Matched VS Code logs</text>
-      <text x="1040" y="465" font-size="14" fill="#9ba7b4">Exact conversation match only</text>
-    </g>
     <text x="40" y="552" font-size="16" font-weight="700">Evidence stays local.</text>
-    <text x="40" y="580" font-size="14" fill="#9ba7b4">Prompt text never becomes a metric label. The central worker does not mount repository source files.</text>
+    <text x="40" y="580" font-size="14" fill="#9ba7b4">Prompt text is stripped before storage and never becomes a metric label. The central worker does not mount repository source files.</text>
   </g>
 </svg>

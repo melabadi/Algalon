@@ -2,6 +2,7 @@ import { describe, expect, test } from 'vitest';
 import { completeWorkerUsage } from '../src/features/calibration/model';
 import { mockOverview } from '../mock/data';
 import { handleMockApiRequest } from '../mock/server';
+import type { Insights, Overview, Prompt } from '../src/types';
 
 function json(path: string): { status: number; body: unknown } {
   const result = handleMockApiRequest('GET', path);
@@ -53,5 +54,47 @@ describe('mock API server', () => {
     const overview = mockOverview('base', 30);
     expect(overview.sessions).not.toHaveLength(0);
     expect(overview.sessions.every(completeWorkerUsage)).toBe(true);
+  });
+
+  test('mirrors the Copilot runtime session and prompt contract', () => {
+    const overview = json('/api/overview?scenario=base&days=30').body as Overview;
+    expect(new Set(overview.sessions.map((session) => session.surface))).toEqual(new Set(['vscode', 'cli', 'mixed', 'app', 'sdk']));
+    const automated = overview.sessions.filter((session) => session.sessionMode === 'automated');
+    expect(automated).toHaveLength(1);
+    expect(automated[0]).toMatchObject({
+      surface: 'sdk', exclusionReason: 'automated_session', modelingStatus: 'unavailable', scenarioResult: null, benchmark: null
+    });
+    expect(automated[0].aiCostUsd).toBeGreaterThan(0);
+    expect(overview.sessions.filter((session) => session.sessionMode === 'interactive').every((session) => session.exclusionReason === null)).toBe(true);
+    expect(overview.sessions.every((session) => session.usage.source === 'otel_traces')).toBe(true);
+    expect(overview.totals).toMatchObject({
+      sessions: overview.sessions.length - 1,
+      automatedSessions: 1,
+      automatedAiCostUsd: automated[0].aiCostUsd
+    });
+    const interactiveCost = overview.sessions
+      .filter((session) => session.sessionMode === 'interactive')
+      .reduce((total, session) => total + session.aiCostUsd, 0);
+    expect(overview.totals.aiCostUsd).toBeCloseTo(interactiveCost, 6);
+
+    const automatedPrompts = json(`/api/sessions/${automated[0].experiment}/prompts`).body as Prompt[];
+    expect(automatedPrompts).toHaveLength(automated[0].promptCount);
+    for (const session of overview.sessions) {
+      const sessionPrompts = json(`/api/sessions/${session.experiment}/prompts`).body as Prompt[];
+      expect(sessionPrompts.every((prompt) => prompt.content === '' && !prompt.contentAvailable
+        && prompt.capturedContentLength === 0 && prompt.usageSource === 'otel_trace')).toBe(true);
+    }
+
+    const insights = json('/api/insights?days=30').body as Insights;
+    expect(insights.evidenceHealth).not.toHaveProperty('directUsageSessions');
+    expect(insights.evidenceHealth.otelUsageSessions).toBe(overview.sessions.length);
+
+    const methodology = json('/api/methodology').body as { formulas: Record<string, string> };
+    expect(methodology.formulas.aiCost).toBe('C_AI = sum(github.copilot.nano_aiu over chat spans) / 1e11');
+
+    const csv = handleMockApiRequest('GET', '/api/export.csv')?.body ?? '';
+    expect(csv.split('\r\n')[0]).toBe('record_type,session_id,prompt_id,started_at,status,surface,session_mode,exclusion_reason,ai_cost_usd');
+    expect(csv).toContain(`session,${automated[0].experiment},,`);
+    expect(csv).toContain('sdk,automated,automated_session');
   });
 });

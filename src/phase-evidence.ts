@@ -1,5 +1,5 @@
 import { benchmarkPhases, type BenchmarkPhase } from './benchmark.js';
-import { normalizeIdentifier } from './normalize.js';
+import { isContainerTool, toolMatchesPattern, toolNameFromSpan, type SpanOperation } from './runtime-telemetry.js';
 import { unionIntervalDuration } from '../shared/intervals.js';
 
 export type PhaseToolPatterns = Record<Exclude<BenchmarkPhase, 'unclassified'>, string[]>;
@@ -7,6 +7,7 @@ export type PhaseToolPatterns = Record<Exclude<BenchmarkPhase, 'unclassified'>, 
 export interface TimedPhaseSpan {
   identity: string;
   name: string;
+  operation?: SpanOperation;
   toolName: string | undefined;
   startMilliseconds: number;
   endMilliseconds: number;
@@ -71,14 +72,26 @@ function engagedMilliseconds(
 
 function classifyTool(toolName: string | undefined, patterns: PhaseToolPatterns): BenchmarkPhase {
   if (!toolName) return 'unclassified';
-  const normalized = normalizeIdentifier(toolName);
   for (const phase of benchmarkPhases) {
     if (phase === 'unclassified') continue;
-    if (patterns[phase].some((pattern) => normalized.includes(normalizeIdentifier(pattern)))) {
+    if (patterns[phase].some((pattern) => toolMatchesPattern(toolName, pattern))) {
       return phase;
     }
   }
   return 'unclassified';
+}
+
+function isToolSpan(span: TimedPhaseSpan): boolean {
+  return span.operation ? span.operation === 'execute_tool' :
+    Boolean(span.toolName) || span.name.startsWith('execute_tool ');
+}
+
+function isChatSpan(span: TimedPhaseSpan): boolean {
+  return span.operation ? span.operation === 'chat' : span.name.startsWith('chat ');
+}
+
+function spanToolName(span: TimedPhaseSpan): string | undefined {
+  return toolNameFromSpan(span.name, span.toolName);
 }
 
 export function calculatePhaseEvidence(
@@ -89,7 +102,7 @@ export function calculatePhaseEvidence(
   maxIdleGapSeconds: number = defaultMaxIdleGapSeconds
 ): PhaseAllocation {
   const intervals: PhaseInterval[] = [];
-  const toolSpans = spans.filter((span) => span.toolName || span.name.startsWith('execute_tool '));
+  const toolSpans = spans.filter((span) => isToolSpan(span) && !isContainerTool(spanToolName(span)));
   const toolCalls = Object.fromEntries(benchmarkPhases.map((phase) => [phase, 0])) as Record<BenchmarkPhase, number>;
   const modelSpans = Object.fromEntries(benchmarkPhases.map((phase) => [phase, 0])) as Record<BenchmarkPhase, number>;
   const uncachedInputTokens = Object.fromEntries(benchmarkPhases.map((phase) => [phase, 0])) as Record<BenchmarkPhase, number>;
@@ -98,22 +111,19 @@ export function calculatePhaseEvidence(
   const toolIntervals: PhaseInterval[] = [];
 
   for (const span of toolSpans) {
-    const phase = classifyTool(span.toolName ?? span.name.replace(/^execute_tool\s+/i, ''), patterns);
+    const phase = classifyTool(spanToolName(span), patterns);
     toolCalls[phase] += 1;
     const interval = { phase, startMilliseconds: span.startMilliseconds, endMilliseconds: span.endMilliseconds };
     intervals.push(interval);
     toolIntervals.push(interval);
   }
 
-  for (const span of spans.filter((candidate) => candidate.name.startsWith('chat ') && candidate.nanoAiCredits > 0)) {
+  for (const span of spans.filter((candidate) => isChatSpan(candidate) && candidate.nanoAiCredits > 0)) {
     const nextTool = toolSpans
       .filter((tool) => tool.startMilliseconds >= span.endMilliseconds - 250 &&
         tool.startMilliseconds <= span.endMilliseconds + 3_000)
       .sort((left, right) => left.startMilliseconds - right.startMilliseconds)[0];
-    const phase = classifyTool(
-      nextTool?.toolName ?? nextTool?.name.replace(/^execute_tool\s+/i, ''),
-      patterns
-    );
+    const phase = classifyTool(nextTool ? spanToolName(nextTool) : undefined, patterns);
     modelSpans[phase] += 1;
     uncachedInputTokens[phase] += span.uncachedInputTokens;
     outputTokens[phase] += span.outputTokens;

@@ -1,6 +1,6 @@
 # Algalon
 
-This project packages a central local GitHub Copilot ROI calculator and drill-down web app. One loopback-only stack aggregates OTel sessions from every local repository using the configured VS Code instance. It requires no GitHub token and makes no GitHub REST calls.
+This project packages a central local GitHub Copilot ROI calculator and drill-down web app. One loopback-only stack aggregates GitHub Copilot runtime OTel sessions from every local repository: the Copilot CLI, Copilot SDK apps, the Copilot app, and VS Code's Copilot harness all run on that runtime. It requires no GitHub token and makes no GitHub REST calls.
 
 - **Project website** at <https://melabadi.github.io/Algalon/> introduces the app, features, methodology, evidence, and installation. Sources live in [site/](site/).
 - **Algalon** at <http://127.0.0.1:3000> provides overall, session, prompt, prompt-detail, and methodology views, plus an explicit local CSV export of every indexed session and prompt.
@@ -33,28 +33,26 @@ The Methodology view exposes every modeled input, preserves a snapshot of the th
 
 ```mermaid
 flowchart LR
-  C1[Copilot in repository A] -->|OTLP 4317/4318| O[OpenTelemetry Collector]
-  C2[Copilot in repository B] -->|OTLP 4317/4318| O
-  O -->|privacy-scrubbed OTLP/HTTP| A[FastAPI ingestion and API]
-  A -->|transactional spans| S[(SQLite)]
-  S -->|monotonic cursor pages| W
-  L[VS Code direct-turn logs read-only] --> W[Session ROI worker]
+  C1[Copilot CLI or SDK app] -->|OTLP/HTTP 4318| O[OpenTelemetry Collector]
+  C2[VS Code Copilot harness or Copilot app] -->|OTLP/HTTP 4318| O
+  O -->|Copilot runtime spans, privacy-scrubbed| A[FastAPI ingestion and API]
+  A -->|transactional spans stamped with session key| S[(SQLite)]
+  S -->|monotonic cursor pages| W[Session ROI worker]
   B[Shared TypeScript benchmark] --> W
   O -->|metrics| V[VictoriaMetrics 8428]
   O -->|scrubbed logs| F[Local Docker volume]
   W -->|session-scoped value metrics| V
   W -->|session artifacts| A
-  L --> A
   A --> U[React app 3000]
   B --> U
   V --> G[Optional Grafana 3001]
 ```
 
-The Collector owns the standard OTLP ports and privacy processing. It sends scrubbed traces directly to FastAPI over the internal Docker network, where each span is committed transactionally to SQLite and deduplicated by span identity. The TypeScript worker reads monotonic SQLite cursor pages, calculates overlap-safe phase scenarios, and publishes `copilot_value_*` metrics. It reconciles model/token/credit usage from the matching read-only VS Code direct-turn log when available, with OTel fallback. Standard Copilot OTel does not expose a trustworthy repository root or retained-source delta, so central sessions mark source evidence unavailable and assign zero coding benefit. FastAPI also indexes worker artifacts and ordered prompt evidence into the same local read model; React queries that API.
+The Collector owns the standard OTLP ports and privacy processing. It sends scrubbed traces directly to FastAPI over the internal Docker network, where each span is committed transactionally to SQLite and deduplicated by span identity. Only Copilot runtime telemetry passes the Collector filter (`github-copilot` service or `github.copilot` scope); ingestion keeps the `invoke_agent`, `chat`, and `execute_tool` spans, keys each by the runtime `gen_ai.conversation.id`, and stamps that key with the session surface and mode on the stored record. The TypeScript worker reads monotonic SQLite cursor pages, sums AI credits, models, and tokens once from chat spans, calculates overlap-safe phase scenarios, and publishes `copilot_value_*` metrics. Standard Copilot OTel does not expose a trustworthy repository root or retained-source delta, so central sessions mark source evidence unavailable and assign zero coding benefit. FastAPI also indexes worker artifacts and ordered prompt evidence into the same local read model; React queries that API.
 
 The pure ROI calculation lives in `shared/benchmark.ts`. The worker uses it for persisted artifacts and metrics. React uses the same module only for the browser-local **Custom** sensitivity view over FastAPI-provided session evidence; FastAPI does not calculate ROI. Custom evaluation never changes observed evidence or worker-published metrics.
 
-Transactional OTLP ingestion lives in `backend/app/store.py`; `src/incremental-evidence.ts` checkpoints the monotonic SQLite inbox cursor and accumulated session evidence in worker state. Span replay is idempotent, late spans update the same session, and no file rotation protocol participates in normal collection. During an upgrade from archive-based collection, FastAPI streams retained scrubbed archives into the inbox once, deduplicates them against live spans, and records a durable completion marker. Session aggregation, direct-turn reconciliation, and source statistics have separate worker modules. React's `App.tsx` is the navigation shell; session, insight, calibration, and methodology workflows live under `web/src/features/`. Common UI text and locale-sensitive formatting use the typed catalog under `web/src/i18n/`, while backend-owned insight text includes stable message keys for future translations.
+Transactional OTLP ingestion lives in `backend/app/store.py`; `src/incremental-evidence.ts` checkpoints the monotonic SQLite inbox cursor and accumulated session evidence in worker state. Span replay is idempotent, late spans update the same session, and no file rotation protocol participates in normal collection. The runtime contract (accepted spans, session key, surface, and mode) lives in `backend/app/runtime_telemetry.py` and `src/runtime-telemetry.ts`, with the shared fixture `test/fixtures/copilot-runtime-otlp.json`. On the first start after the runtime-capture upgrade, FastAPI backs up the VS Code-era database, session artifacts, worker state, and trace archives under the telemetry volume's `backups/` folder, clears them, and records a durable completion marker. Session aggregation and source statistics have separate worker modules. React's `App.tsx` is the navigation shell; session, insight, calibration, and methodology workflows live under `web/src/features/`. Common UI text and locale-sensitive formatting use the typed catalog under `web/src/i18n/`, while backend-owned insight text includes stable message keys for future translations.
 
 ## Prerequisites
 
@@ -169,7 +167,7 @@ After building the worker, run the larger synthetic-history freshness check from
 python -m scripts.indexing_reliability --spans 730000 --sessions 250 --updates 40
 ```
 
-This starts the real API and TypeScript worker on temporary loopback endpoints with an isolated SQLite database and a local metrics sink. It checks retained-history catch-up, continuing updates, API/worker restart, and exact final prompt totals. The proposed live-update limits are p95 at most 30 seconds and p99 at most 60 seconds after initial catch-up, under the reported synthetic workload; they are release acceptance targets, not a guarantee for arbitrary hardware, workload, or upstream outages. Collector privacy and persisted exporter delivery are validated separately with the container smoke checks.
+This starts the real API and TypeScript worker on temporary loopback endpoints with an isolated SQLite database and a local metrics sink. It checks retained-history catch-up, continuing updates, API/worker restart, exact final prompt totals, and convergence after a span that changes no evaluation input. The proposed live-update limits are p95 at most 30 seconds and p99 at most 60 seconds after initial catch-up, under the reported synthetic workload; they are release acceptance targets, not a guarantee for arbitrary hardware, workload, or upstream outages. Collector privacy and persisted exporter delivery are validated separately with the container smoke checks.
 
 Use `python scripts/copilot_value.py bundle` for a release build and `python scripts/copilot_value.py smoke-bundle --skip-build` to validate the exact generated artifact. The full smoke requires Docker and temporarily occupies the product ports. CI extends that exact-artifact smoke on a fresh Ubuntu runner: it backfills synthetic sessions through OTLP, opens the packaged application with Playwright, exercises range and scenario controls, and drills from the portfolio into retained prompt evidence at desktop and mobile sizes.
 
@@ -219,26 +217,27 @@ Windows:
 
 ```powershell
 Set-Location C:\Repos\my-project
-python C:\Downloads\copilot-value-dashboard-0.2.0.pyz
+python C:\Downloads\copilot-value-dashboard-<version>.pyz
 ```
 
 macOS or Linux:
 
 ```sh
 cd ~/repos/my-project
-python3 ~/Downloads/copilot-value-dashboard-0.2.0.pyz
+python3 ~/Downloads/copilot-value-dashboard-<version>.pyz
 ```
 
-That command:
+Replace `<version>` with the version in the downloaded filename. That command:
 
 - creates or upgrades `<repository>/.copilot-value` from the embedded runtime;
 - adds `.copilot-value/` to the repository's `.gitignore`;
-- configures both Copilot OTel setting families in every detected VS Code user settings file;
+- configures both Copilot OTel setting families in every detected VS Code user settings file (they enable export from the VS Code Copilot harness);
+- sets the user-level `COPILOT_OTEL_ENABLED=true` (with a backup) so new Copilot CLI, Copilot app, and Copilot SDK processes export to the loopback Collector; `restore-copilot-env` reverts it;
+- migrates VS Code-era `phaseToolPatterns` to runtime tool names after backing up the local configuration;
 - creates the local value-model configuration and application database when absent;
 - validates Docker and Docker Compose;
 - pulls the pinned Collector, VictoriaMetrics, Node, and Python images;
 - builds and starts the continuous session worker and FastAPI/React app;
-- mounts VS Code `User/workspaceStorage` read-only for exact local turn evidence when available;
 - prints the application URL.
 
 The command is idempotent. It preserves local configuration, credentials, and Docker volumes when run again. The containing repository is the installation home only; the Collector receives sessions from every local repository, so do not install another stack per repository.
@@ -249,11 +248,11 @@ VS Code declares these OTel settings as application-scoped and ignores them in `
 
 For the exact user-level JSONC keys, manual verification, and recovery steps, see [Verify or configure VS Code manually](docs/local-deployment/README.md#verify-or-configure-vs-code-manually).
 
-### 3. Reload VS Code
+### 3. Restart Copilot clients
 
-Run **Developer: Reload Window** after installation. Existing Copilot sessions do not hot-load OTel configuration, so start a new session after the reload.
+Open a new terminal (or restart the Copilot app) so Copilot CLI and SDK processes inherit `COPILOT_OTEL_ENABLED=true`, and run **Developer: Reload Window** in VS Code. Use the **Copilot** harness in VS Code; Local-harness sessions emit the legacy `copilot-chat` dialect, which Algalon no longer captures. Existing sessions do not hot-load OTel configuration, so start a new session afterwards. SDK apps can also pass `telemetry: { otlpEndpoint: "http://127.0.0.1:4318" }` explicitly; see [Copilot SDK apps](docs/local-deployment/README.md#copilot-sdk-apps). Mark scripted, CI, or batch runs with `OTEL_RESOURCE_ATTRIBUTES=algalon.session.mode=automated` in that process's environment: they keep observed usage but produce no modeled developer value. See [Mark automated and SDK sessions](docs/local-deployment/README.md#mark-automated-and-sdk-sessions).
 
-The Collector removes response/reasoning content, system instructions, tool definitions and payloads, commands, file paths, repository metadata, hook payloads, and MCP server names. The app also mounts the detected VS Code `User/workspaceStorage` directory read-only and opens only the `main.jsonl` file whose folder name exactly matches the OTel `gen_ai.conversation.id`/`copilot_chat.chat_session_id` for the segmented resource session. Direct `user_message` events define prompt boundaries; following `llm_request.copilotUsageNanoAiu` values are summed until the next direct user message, matching the credit counter shown by Copilot. Prompt text is persisted only in the bounded SQLite prompt index. It is never exported as a metric label or sent off the workstation. Set `promptStorage.enabled` to `false` to keep prompt statistics but omit stored prompt text.
+The Collector drops telemetry from every non-Copilot service and removes response/reasoning content, system instructions, tool definitions and payloads, commands, file paths, repository and organization metadata, hook payloads, MCP server names, pseudonymous user IDs, and exception messages. Each runtime trace is one user message, so the prompt index stores one row per message with its model requests, tool calls, tokens, and AI credits. Runtime telemetry carries prompt text only when OTel content capture is on, and the Collector strips it even then, so prompt rows are text-less and no prompt text is stored.
 
 ### 4. Verify the installation
 
@@ -273,9 +272,9 @@ The command reports `yes` for `victoria-metrics`, `collector`, `worker`, and `ap
 
 ### 5. Use Copilot in any local repository
 
-The stack must be running while Copilot emits OTel. Open a GitHub Copilot chat/agent session in any local repository and work normally. No experiment start, stop, naming, repository registration, or completion command is required.
+The stack must be running while Copilot emits OTel. Start a Copilot CLI session, an SDK app, the Copilot app, or a VS Code Copilot-harness session in any local repository and work normally. No experiment start, stop, naming, repository registration, or completion command is required.
 
-The worker detects each OTel `session.id` in the transactional inbox and continuously updates one privacy-safe dashboard segment for that ID. It does not ignore a session because it began before a worker restart. Repository identity and paths are removed at the Collector privacy boundary, and retained source is reported as unavailable rather than inferred from the installation repository.
+The worker detects each runtime `gen_ai.conversation.id` in the transactional inbox and continuously updates one privacy-safe dashboard segment for that ID; resuming a session continues the same segment. It does not ignore a session because it began before a worker restart. Repository identity and paths are removed at the Collector privacy boundary, and retained source is reported as unavailable rather than inferred from the installation repository.
 
 ### Normal operations
 
@@ -350,22 +349,23 @@ The worker persists and publishes only the three configured scenario branches. T
 
 No manual start or completion command is required. The Collector and worker continuously process scrubbed OTel spans:
 
-1. It discovers every authoritative OTel resource attribute `session.id` emitted by GitHub Copilot, regardless of repository.
-2. It assigns one stable privacy-safe segment to each ID.
-3. It reconciles exact direct-turn credits/model/tokens from every matching conversation log carried by that resource session. If the complete set is unavailable, it uses the complete OTel fallback instead of partial direct usage.
+1. It discovers every authoritative Copilot runtime `gen_ai.conversation.id` that ingestion stamped as the session key, regardless of repository or client surface.
+2. It assigns one stable privacy-safe segment to each ID; resumed sessions continue the same segment.
+3. It sums AI credits, models, and tokens once from the session's chat spans; `invoke_agent` totals are never added.
 4. It calculates non-overlapping phase evidence and scenario values for that session only.
 5. It records source evidence as unavailable and uses zero retained characters, so coding tools alone cannot create coding benefit.
 6. It publishes a label such as `session-20260805-101112-a1b2c3d4e5`; the raw session ID is never published.
-7. On every poll, cursor-ordered new spans or direct-turn usage update the same session label. No inactivity or completion rule creates boundaries.
-8. FastAPI indexes the latest session artifact and prompt groups into SQLite for the React drill-down views.
+7. On every poll, cursor-ordered new spans update the same session label. No inactivity or completion rule creates boundaries.
+8. Sessions whose resource carries `algalon.session.mode=automated` keep observed usage but produce no modeled value and stay out of modeled portfolio totals.
+9. FastAPI indexes the latest session artifact and prompt groups into SQLite for the React drill-down views.
 
 The Collector commits each privacy-scrubbed span to SQLite before acknowledging export. The worker persists one integer inbox cursor and reads only later rows. A unique span key makes replay idempotent, while event timestamps remain evidence rather than ingestion filters, so late spans update the correct session.
 
-When upgrading an installation that still has scrubbed `traces*.json` files, the app imports those files into the inbox exactly once before marking the archive migration complete. The import is resumable and idempotent; later collection remains Collector-to-SQLite only.
+When upgrading an installation created by a VS Code-era release, the app performs a one-time fresh start: it copies the SQLite database (online backup), session artifacts, worker state, and any `traces*.json` archives into `backups/vscode-legacy-<timestamp>/` inside the telemetry volume, clears them, and records a completion marker. Inbox cursors stay monotonic, and later collection remains Collector-to-SQLite only.
 
 Every authoritative session in the local telemetry inbox is eligible for indexing. Because standard Copilot OTel does not carry retained-source evidence, the central worker never combines telemetry from one repository with a filesystem snapshot from another.
 
-The Collector endpoint is configured in VS Code user settings, not repository settings. One running stack therefore accepts Copilot OTLP events from every local workspace and directory; the repository containing the installation is only the stack's operational home.
+Copilot runtime clients export to their default `http://localhost:4318` once `COPILOT_OTEL_ENABLED=true` is set for the user (VS Code enables its Copilot harness through user settings). One running stack therefore accepts Copilot OTLP events from every local workspace and directory; the repository containing the installation is only the stack's operational home.
 
 The default refresh interval is five seconds. To change it, rerun `install` with a different interval:
 
@@ -383,34 +383,36 @@ python3 .copilot-value/scripts/copilot_value.py install --poll-seconds 10
 
 ## What is observed
 
-The Collector accepts these local OTel instruments when available. Central per-session calculation uses the session-scoped trace and direct-turn evidence; aggregate native metrics remain available in VictoriaMetrics:
+The Collector keeps only Copilot runtime telemetry. Central per-session calculation uses the session-scoped trace evidence; aggregate native runtime metrics remain available in VictoriaMetrics:
 
-- `copilot_chat.edit.acceptance.count`: accepted, rejected, and unmapped edit decisions
-- `copilot_chat.lines_of_code.count`: LoC added or removed by accepted agent edits
-- `copilot_chat.edit.survival.four_gram` and `.no_revert`: retained-code quality factors
-- `copilot_chat.user.action.count`: apply, insert, and copy engagement
-- `copilot_chat.tool.call.count`: successful tool calls and their names
-- session, invocation, turn, model, token, latency, and error metrics
-- scrubbed chat-span attributes including request model, input/cache-read/output/reasoning tokens, and `copilot_chat.copilot_usage_nano_aiu`
+- `invoke_agent` (one per user message or subagent), `chat <model>` (one per model request), and `execute_tool <tool>` spans keyed by `gen_ai.conversation.id`
+- scrubbed chat-span attributes: request model, input/cache-read/output tokens, `gen_ai.usage.reasoning.output_tokens`, and `github.copilot.nano_aiu`
+- `github.copilot.tool.call.count` and `.duration`, `gen_ai.invoke_agent.*`, `gen_ai.client.*`, and `github.copilot.agent.turn.count` metrics
+- `github.copilot.code.lines_added` and `.lines_removed`: lines written by the agent (audit evidence only; there is no human accept or reject signal)
+- the resource `service.namespace` (`vscode.agent-host` for the VS Code Copilot harness) and optional `algalon.surface` and `algalon.session.mode` markers
 - explicit source-evidence completeness; central sessions publish `0` with `evidence="otel_only"`
-- local direct-turn prompt groups containing user-request text, timestamps, model/tool counts, tokens, AI credits, and their dollar-equivalent usage value
+- local text-less prompt groups (one per user message) with timestamps, model/tool counts, tokens, AI credits, and their dollar-equivalent usage value
+
+VS Code Copilot Chat edit-acceptance, edit-survival, and user-action metrics belong to the legacy Local harness and are no longer captured.
 
 The current public OTel contract does not expose a canonical Ask/Edit/Plan/Agent mode dimension. Tool classifications are therefore conservative proxies:
 
-- Coding proxy: Copilot-reported successful tool executions matching configured patch/create/semantic-rename patterns.
-- Research proxy: successful tool names matching configured search/read/fetch-like patterns.
-- Planning proxy: successful tool names matching configured todo/planning patterns.
-- Unmatched successful tools: displayed as unmapped and excluded from benefit.
+- Coding proxy: runtime tools matching `edit`, `create`, `apply_patch`, or `str_replace`.
+- Research proxy: runtime tools matching `view`, `rg`, `grep`, `glob`, `fetch`, `search`, or `lsp`.
+- Planning proxy: runtime tools matching `ask_user`, `exit_plan_mode`, or `todo`.
+- Validation proxy: shell and test tools such as `powershell`, `bash`, or `playwright`.
+- Patterns match whole identifier tokens, so `rg` never matches `merge_pull_request`. Delegation and wait tools (`task`, `read_agent`, `write_agent`, `list_agents`) are excluded because their nested subagent spans carry the evidence.
+- Unmatched tools are displayed as unclassified and excluded from benefit.
 
 ## How benchmark time and money are estimated
 
-Each indexed Copilot session partitions measured **engaged** AI-assisted time into planning, research, coding, validation, and unclassified phases. Engaged time is the union of observed span activity with idle gaps up to `benchmark.maxIdleGapSeconds` (default 300) bridged as think time; longer idle is excluded. Elapsed window duration and activity density are still published as observed evidence. Only OTel spans carrying the same `session.id` are counted in a session. Tool spans are classified by configured tool-name patterns. Each cost-bearing primary chat span inherits the phase of the next tool it prepared. Overlapping phase intervals are split rather than counted twice; engaged time outside spans is allocated in proportion to active phase time. A session with no eligible active spans allocates zero and produces no ROI. Therefore:
+Each indexed Copilot session partitions measured **engaged** AI-assisted time into planning, research, coding, validation, and unclassified phases. Engaged time is the union of observed span activity with idle gaps up to `benchmark.maxIdleGapSeconds` (default 300) bridged as think time; longer idle is excluded. Elapsed window duration and activity density are still published as observed evidence. Only runtime spans stamped with the same session key (`gen_ai.conversation.id`) are counted in a session. Tool spans are classified by configured tool-name patterns. Each cost-bearing primary chat span inherits the phase of the next tool it prepared. Overlapping phase intervals are split rather than counted twice; engaged time outside spans is allocated in proportion to active phase time. A session with no eligible active spans allocates zero and produces no ROI. Therefore:
 
 $$
 T_{AI} = \sum_p T_{AI,p} = \frac{W_{engaged}}{60}
 $$
 
-**Code correspondence:** [gap bounding, overlap-safe segmentation, and engaged-time allocation](src/phase-evidence.ts#L47-L180), with the benchmark summing phase seconds at [shared/benchmark.ts, lines 225-230](shared/benchmark.ts#L225-L230).
+**Code correspondence:** [gap bounding, overlap-safe segmentation, and engaged-time allocation](src/phase-evidence.ts#L48-L190), with the benchmark summing phase seconds at [shared/benchmark.ts, lines 225-230](shared/benchmark.ts#L225-L230).
 
 Manual phase time is estimated from phase-specific evidence rather than a speedup percentage. Let $U$ be uncached input tokens, $O$ output tokens, $Q$ reasoning tokens, $\omega$ the configured reasoning-token weight, $N$ tool executions, $D$ non-overlapping tool runtime, $C$ exact added/modified characters retained at completion, and $c$ characters per word:
 
@@ -484,13 +486,13 @@ $$
 
 **Code correspondence:** per-minute labor and realized value are computed at [shared/benchmark.ts, lines 257-262](shared/benchmark.ts#L257-L262), then applied to savings at [line 311](shared/benchmark.ts#L311).
 
-AI usage value uses `copilotUsageNanoAiu` from the exact local VS Code direct-turn log when available, with the matching OTel trace spans as fallback. One AI credit is $0.01$:
+AI usage value sums `github.copilot.nano_aiu` once over the session's unique runtime `chat` spans. The runtime also stamps cumulative credits on `invoke_agent` spans; those are never added, because they would double-count and a root agent total omits nested subagent calls. One AI credit is $0.01$:
 
 $$
-C_{AI} = \frac{\sum \text{copilot\_usage\_nano\_aiu}}{10^{11}}
+C_{AI} = \frac{\sum_{chat\ spans} \text{github.copilot.nano\_aiu}}{10^{11}}
 $$
 
-**Code correspondence:** OTel fallback conversion is at [src/experiment-evidence.ts, lines 195-215](src/experiment-evidence.ts#L195-L215); exact matching direct-turn conversion is at [src/direct-turns.ts, lines 130-155](src/direct-turns.ts#L130-L155).
+**Code correspondence:** chat-span collection is at [src/experiment-evidence.ts, lines 157-209](src/experiment-evidence.ts#L157-L209), and credit and dollar conversion at [lines 211-258](src/experiment-evidence.ts#L211-L258).
 
 The comparative views also expose manual-only and AI-assisted delivery costs at the same loaded labor rate, plus a bounded reduction ratio:
 
@@ -509,7 +511,7 @@ $$
 ROI_s = \frac{B_s-C_{AI}}{C_{AI}}
 $$
 
-**Code correspondence:** net value is computed at [shared/benchmark.ts, line 312](shared/benchmark.ts#L312), and ROI with its zero-cost guard at [lines 337-345](shared/benchmark.ts#L337-L345). The central zero-source input is supplied at [src/continuous.ts, lines 310-320](src/continuous.ts#L310-L320).
+**Code correspondence:** net value is computed at [shared/benchmark.ts, line 312](shared/benchmark.ts#L312), and ROI with its zero-cost guard at [lines 337-345](shared/benchmark.ts#L337-L345). The central zero-source input is supplied at [src/continuous.ts, lines 407-413](src/continuous.ts#L407-L413), after the automated-session gate at [lines 403-406](src/continuous.ts#L403-L406).
 
 Realized net gain $B_s-C_{AI}$, break-even manual time, and the bounded reduction $R_s$ are the primary reported figures. $ROI_s$ divides by observed AI credit spend alone, so it rises when the same work is done with a cheaper model; it is retained as a clearly labeled secondary ratio rather than a headline. Gross delivery savings $\Delta C_{gross,s}$ are shown for direct comparison, but they are not the ROI numerator. The break-even panel reports the manual duration at which estimated realized labor value recovers $C_{AI}$ under the configured labor rate and capacity-realization factor, and repeats that threshold across the capacity band. Model/token categories, phase tokens, tool runtime, and measured phase allocation are published for audit. Tool counts contribute only the configured interaction overhead; they are not assigned fixed minutes saved. Every persisted benchmark carries a `formulaVersion`, and the read model refuses to aggregate results from another version. These calibration values must be replaced with locally measured rates for stronger claims.
 
@@ -563,14 +565,15 @@ The bundle smoke test extracts the zip into a temporary repository's `.copilot-v
 
 - repository-root installation and automatic `.gitignore` setup;
 - absence of any repository bind mount in central session processing;
-- authoritative `session.id` discovery and session-isolated AI usage;
-- immediate `session.id` segmentation, repeated updates, and hashed session labels;
+- authoritative runtime `gen_ai.conversation.id` discovery and session-isolated AI usage counted once from chat spans, never again from the root `invoke_agent` total;
+- immediate conversation segmentation, parent-joined tool spans that lack a conversation ID, repeated updates, and hashed session labels;
 - conservative `otel_only` source state with zero retained characters for the central session;
+- exclusion of an explicitly automated SDK session from modeled value while its observed usage stays visible;
 - compiled fixture calculation without TypeScript or dev dependencies;
 - OTLP metric ingestion on `4318`;
 - privacy removal of a synthetic file path;
 - automatic per-session ROI publication and VictoriaMetrics queryability;
-- FastAPI/SQLite indexing of the synthetic session and prompt content;
+- FastAPI/SQLite indexing of the synthetic session, its client surface and session mode, and text-less prompt groups;
 - compiled React delivery and application health on port `3000`;
 - fresh-runner Playwright navigation over synthetic 14-day and 21-day backfill, including time-range filtering, scenario selection, session search, and prompt drill-down;
 - clean shutdown and restoration of the development stack.
@@ -581,4 +584,4 @@ Every successful push to `main` also creates a GitHub Release. CI reads the high
 
 ## Limits
 
-This is an individual directional benchmark, not a causal productivity study. The manual-time model uses explicit calibrated token, interaction, typing, and capacity assumptions rather than a measured no-AI counterfactual. A saved Custom set is a sensitivity input, not proof that its assumptions are true. AI-credit usage is observed economic usage value; it may be included allowance rather than incremental invoice spend. Tool names are activity proxies only. Standard Copilot OTel does not currently provide trustworthy repository attribution or retained-source delta, so the central dashboard cannot group by repository and gives coding no positive value without matched source evidence. A repeated comparable AI/no-AI task design provides stronger causal evidence.
+This is an individual directional benchmark, not a causal productivity study. The manual-time model uses explicit calibrated token, interaction, typing, and capacity assumptions rather than a measured no-AI counterfactual. A saved Custom set is a sensitivity input, not proof that its assumptions are true. AI-credit usage is observed economic usage value; it may be included allowance rather than incremental invoice spend. Tool names are activity proxies only. Only GitHub Copilot runtime telemetry is measured: VS Code sessions on the Local harness are not captured, and sessions are treated as interactive unless explicitly marked `algalon.session.mode=automated`, so unmarked automation can be modeled as developer work. Standard Copilot OTel does not currently provide trustworthy repository attribution or retained-source delta, so the central dashboard cannot group by repository and gives coding no positive value without matched source evidence. A repeated comparable AI/no-AI task design provides stronger causal evidence.

@@ -29,53 +29,45 @@ COLLECTOR_URL = "http://127.0.0.1:4318"
 @dataclass(frozen=True)
 class BackfilledSession:
     experiment: str
-    prompt: str
 
 
 def seed_backfilled_session(days_ago: int) -> BackfilledSession:
     started_milliseconds = int(time.time() * 1000) - days_ago * 24 * 60 * 60 * 1000
-    session_id = f"release-user-journey-{secrets.token_hex(12)}"
     conversation_id = f"release-user-conversation-{secrets.token_hex(12)}"
-    prompt = f"Synthetic browser journey backfill from {days_ago} days ago"
     started_at = datetime.fromtimestamp(started_milliseconds / 1000, timezone.utc)
-    session_hash = hashlib.sha256(session_id.encode()).hexdigest()[:10]
+    session_hash = hashlib.sha256(conversation_id.encode()).hexdigest()[:10]
     experiment = f"session-{started_at:%Y%m%d-%H%M%S}-{session_hash}"
 
     post_json(
         f"{COLLECTOR_URL}/v1/traces",
-        smoke_trace_payload(
-            session_id,
-            conversation_id,
-            prompt,
-            started_milliseconds,
-            include_tool=True,
-        ),
+        smoke_trace_payload(conversation_id, started_milliseconds, include_tool=True),
         retry_seconds=90,
     )
     wait_for_app_session(
         experiment,
-        (prompt,),
+        expected_prompt_count=1,
         expected_started_milliseconds=started_milliseconds,
     )
-    return BackfilledSession(experiment, prompt)
+    return BackfilledSession(experiment)
 
 
 def run_user_journey(page: Page, sessions: list[BackfilledSession]) -> None:
     page.goto(APP_URL, wait_until="domcontentloaded")
     expect(page.get_by_role("heading", name="Overall Copilot value")).to_be_visible()
 
+    # The bundle smoke adds one interactive and one automated current session before this journey.
     session_rows = page.locator("table.session-table tbody tr")
-    expect(session_rows).to_have_count(3)
+    expect(session_rows).to_have_count(4)
     for session in sessions:
         expect(page.get_by_text(session.experiment, exact=True)).to_be_visible()
 
     page.get_by_label("Time range").select_option("7")
-    expect(session_rows).to_have_count(1)
+    expect(session_rows).to_have_count(2)
     for session in sessions:
         expect(page.get_by_text(session.experiment, exact=True)).to_have_count(0)
 
     page.get_by_label("Time range").select_option("30")
-    expect(session_rows).to_have_count(3)
+    expect(session_rows).to_have_count(4)
     for session in sessions:
         expect(page.get_by_text(session.experiment, exact=True)).to_be_visible()
 
@@ -95,9 +87,10 @@ def run_user_journey(page: Page, sessions: list[BackfilledSession]) -> None:
     expect(page.get_by_role("heading", name="Session detail")).to_be_visible()
     page.get_by_role("button", name=re.compile(r"Level 3.*Prompts")).click()
     expect(page.get_by_role("heading", name="Prompts in this session")).to_be_visible()
-    page.get_by_text(selected.prompt, exact=True).click()
+    page.get_by_text("Message 1", exact=True).click()
     expect(page.get_by_role("heading", name="Prompt detail")).to_be_visible()
-    expect(page.locator("pre.prompt-content")).to_have_text(selected.prompt)
+    expect(page.locator(".prompt-text-unavailable")).to_be_visible()
+    expect(page.locator("pre.prompt-content")).to_have_count(0)
 
     page.set_viewport_size({"width": 390, "height": 844})
     page.goto(APP_URL, wait_until="domcontentloaded")

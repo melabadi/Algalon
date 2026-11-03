@@ -8,7 +8,8 @@ import type {
   Prompt,
   Scenario,
   ScenarioResult,
-  Session
+  Session,
+  SessionSurface
 } from '../src/types';
 
 const hourlyRateUsd = 92;
@@ -104,6 +105,7 @@ function scenarioResult(
 
 interface SessionSpec {
   experiment: string;
+  surface: SessionSurface;
   daysAgo: number;
   durationSeconds: number;
   engagedSeconds: number;
@@ -119,6 +121,7 @@ interface SessionSpec {
   baseManualMinutes: number;
   sourceCharacters?: number;
   modeled?: boolean;
+  automated?: boolean;
 }
 
 function createSession(spec: SessionSpec): Session {
@@ -149,12 +152,17 @@ function createSession(spec: SessionSpec): Session {
     scenarioResult(scenario, spec.engagedSeconds, aiCostUsd, spec.baseManualMinutes, phaseSecondsByName)
   ])) as Record<Scenario, ScenarioResult>;
   const sourceEvidenceComplete = spec.sourceCharacters !== undefined;
-  const modeled = spec.modeled !== false;
+  // Automated sessions keep observed usage, but the worker never models developer value for them.
+  const automated = spec.automated === true;
+  const modeled = spec.modeled !== false && !automated;
 
   return {
     experiment: spec.experiment,
     ...interval,
-    status: 'published',
+    status: automated ? 'excluded_automated' : 'published',
+    surface: spec.surface,
+    sessionMode: automated ? 'automated' : 'interactive',
+    exclusionReason: automated ? 'automated_session' : null,
     durationSeconds: spec.durationSeconds,
     aiCostUsd,
     aiCredits: spec.aiCredits,
@@ -172,11 +180,11 @@ function createSession(spec: SessionSpec): Session {
     latestMessageAt: new Date(Date.parse(interval.completedAt) - 25_000).toISOString(),
     scenario: 'base',
     scenarioResult: modeled ? benchmarkScenarios.base : null,
-    formulaVersion,
+    formulaVersion: automated ? null : formulaVersion,
     currentFormula: modeled,
     modelingStatus: modeled ? 'available' : 'unavailable',
     usage: {
-      source: spec.experiment === 'checkout-flow-refactor' ? 'copilot_turn_log' : 'otel_traces',
+      source: 'otel_traces',
       chatSpans: spec.chatSpans,
       inputTokens: spec.inputTokens,
       cacheReadTokens: spec.cacheReadTokens,
@@ -221,20 +229,20 @@ function createSession(spec: SessionSpec): Session {
 }
 
 const sessions = [
-  createSession({ experiment: 'checkout-flow-refactor', daysAgo: 0.2, durationSeconds: 2_280, engagedSeconds: 1_620, activeSeconds: 840, aiCredits: 142, chatSpans: 8, inputTokens: 72_400, cacheReadTokens: 51_200, outputTokens: 4_800, reasoningTokens: 1_350, promptCount: 3, model: 'gpt-5.1-codex', baseManualMinutes: 58, sourceCharacters: 4_860 }),
-  createSession({ experiment: 'auth-regression-fix', daysAgo: 2, durationSeconds: 1_260, engagedSeconds: 1_080, activeSeconds: 610, aiCredits: 84, chatSpans: 5, inputTokens: 38_200, cacheReadTokens: 21_700, outputTokens: 2_250, reasoningTokens: 740, promptCount: 2, model: 'claude-sonnet-4.5', baseManualMinutes: 14, sourceCharacters: 620 }),
-  createSession({ experiment: 'api-test-coverage', daysAgo: 8, durationSeconds: 3_180, engagedSeconds: 2_460, activeSeconds: 1_380, aiCredits: 211, chatSpans: 12, inputTokens: 118_000, cacheReadTokens: 86_000, outputTokens: 7_450, reasoningTokens: 2_900, promptCount: 3, model: 'gpt-5.1-codex', baseManualMinutes: 74, sourceCharacters: 7_920 }),
-  createSession({ experiment: 'telemetry-only-research', daysAgo: 18, durationSeconds: 900, engagedSeconds: 660, activeSeconds: 330, aiCredits: 25, chatSpans: 2, inputTokens: 12_800, cacheReadTokens: 8_200, outputTokens: 780, reasoningTokens: 110, promptCount: 1, model: 'gpt-5-mini', baseManualMinutes: 0, modeled: false })
+  createSession({ experiment: 'checkout-flow-refactor', surface: 'vscode', daysAgo: 0.2, durationSeconds: 2_280, engagedSeconds: 1_620, activeSeconds: 840, aiCredits: 142, chatSpans: 8, inputTokens: 72_400, cacheReadTokens: 51_200, outputTokens: 4_800, reasoningTokens: 1_350, promptCount: 3, model: 'gpt-5.1-codex', baseManualMinutes: 58, sourceCharacters: 4_860 }),
+  createSession({ experiment: 'auth-regression-fix', surface: 'cli', daysAgo: 2, durationSeconds: 1_260, engagedSeconds: 1_080, activeSeconds: 610, aiCredits: 84, chatSpans: 5, inputTokens: 38_200, cacheReadTokens: 21_700, outputTokens: 2_250, reasoningTokens: 740, promptCount: 2, model: 'claude-sonnet-4.5', baseManualMinutes: 14, sourceCharacters: 620 }),
+  createSession({ experiment: 'api-test-coverage', surface: 'mixed', daysAgo: 8, durationSeconds: 3_180, engagedSeconds: 2_460, activeSeconds: 1_380, aiCredits: 211, chatSpans: 12, inputTokens: 118_000, cacheReadTokens: 86_000, outputTokens: 7_450, reasoningTokens: 2_900, promptCount: 3, model: 'gpt-5.1-codex', baseManualMinutes: 74, sourceCharacters: 7_920 }),
+  createSession({ experiment: 'telemetry-only-research', surface: 'app', daysAgo: 18, durationSeconds: 900, engagedSeconds: 660, activeSeconds: 330, aiCredits: 25, chatSpans: 2, inputTokens: 12_800, cacheReadTokens: 8_200, outputTokens: 780, reasoningTokens: 110, promptCount: 1, model: 'gpt-5-mini', baseManualMinutes: 0, modeled: false }),
+  createSession({ experiment: 'nightly-dependency-audit', surface: 'sdk', automated: true, daysAgo: 1, durationSeconds: 840, engagedSeconds: 620, activeSeconds: 410, aiCredits: 37, chatSpans: 6, inputTokens: 41_000, cacheReadTokens: 29_500, outputTokens: 2_900, reasoningTokens: 600, promptCount: 1, model: 'gpt-5-mini', baseManualMinutes: 0 })
 ];
 
+/** Copilot runtime telemetry never carries prompt text, so each row is a text-less user message. */
 function prompt(
   session: Session,
   ordinal: number,
-  content: string,
-  values: { requests: number; tools: number; input: number; cache: number; output: number; reasoning: number; credits: number; source?: Prompt['usageSource'] }
+  values: { requests: number; tools: number; input: number; cache: number; output: number; reasoning: number; credits: number }
 ): Prompt {
   const promptId = `${session.experiment}-prompt-${ordinal}`;
-  const contentAvailable = content.length > 0;
   const startedAt = new Date(Date.parse(session.startedAt) + ordinal * 170_000).toISOString();
   return {
     promptId,
@@ -242,10 +250,10 @@ function prompt(
     ordinal,
     ordinalExact: String(ordinal),
     startedAt,
-    content,
-    contentAvailable,
-    capturedContentLength: contentAvailable ? content.length + 2_400 : 1_180,
-    capturedContentLengthExact: String(contentAvailable ? content.length + 2_400 : 1_180),
+    content: '',
+    contentAvailable: false,
+    capturedContentLength: 0,
+    capturedContentLengthExact: '0',
     modelRequests: values.requests,
     modelRequestsExact: String(values.requests),
     toolCalls: values.tools,
@@ -261,7 +269,7 @@ function prompt(
     reasoningTokensExact: String(values.reasoning),
     aiCredits: values.credits,
     aiCostUsd: values.credits / 100,
-    usageSource: values.source ?? 'copilot_turn_log',
+    usageSource: 'otel_trace',
     models: { [session.usage.models?.[0]?.model ?? 'unknown']: values.requests },
     modelsExact: { [session.usage.models?.[0]?.model ?? 'unknown']: String(values.requests) },
     roi: null,
@@ -270,15 +278,16 @@ function prompt(
 }
 
 export const mockPrompts: Prompt[] = [
-  prompt(sessions[0], 1, 'Trace the checkout orchestration and identify the smallest safe boundary for the refactor.', { requests: 3, tools: 7, input: 25_200, cache: 18_700, output: 1_620, reasoning: 480, credits: 49 }),
-  prompt(sessions[0], 2, 'Implement the refactor with focused regression coverage for retries and partial failures.', { requests: 3, tools: 9, input: 31_800, cache: 24_100, output: 2_140, reasoning: 650, credits: 58 }),
-  prompt(sessions[0], 3, '', { requests: 2, tools: 4, input: 15_400, cache: 8_400, output: 1_040, reasoning: 220, credits: 35 }),
-  prompt(sessions[1], 1, 'Reproduce the authentication refresh regression and locate the state transition that drops the token.', { requests: 3, tools: 6, input: 23_900, cache: 13_800, output: 1_410, reasoning: 510, credits: 51, source: 'otel_trace' }),
-  prompt(sessions[1], 2, 'Fix the refresh race and run the narrow authentication tests.', { requests: 2, tools: 5, input: 14_300, cache: 7_900, output: 840, reasoning: 230, credits: 33, source: 'otel_trace' }),
-  prompt(sessions[2], 1, 'Map the untested API error branches and rank them by user impact.', { requests: 4, tools: 8, input: 39_500, cache: 30_200, output: 2_230, reasoning: 910, credits: 72 }),
-  prompt(sessions[2], 2, 'Add coverage for validation failures, missing sessions, and CSV export headers.', { requests: 5, tools: 12, input: 51_200, cache: 38_100, output: 3_080, reasoning: 1_270, credits: 91 }),
-  prompt(sessions[2], 3, 'Run the backend suite and repair only regressions caused by these tests.', { requests: 3, tools: 7, input: 27_300, cache: 17_700, output: 2_140, reasoning: 720, credits: 48 }),
-  prompt(sessions[3], 1, 'Summarize the retained telemetry contract and its privacy boundary.', { requests: 2, tools: 2, input: 12_800, cache: 8_200, output: 780, reasoning: 110, credits: 25, source: 'otel_trace' })
+  prompt(sessions[0], 1, { requests: 3, tools: 7, input: 25_200, cache: 18_700, output: 1_620, reasoning: 480, credits: 49 }),
+  prompt(sessions[0], 2, { requests: 3, tools: 9, input: 31_800, cache: 24_100, output: 2_140, reasoning: 650, credits: 58 }),
+  prompt(sessions[0], 3, { requests: 2, tools: 4, input: 15_400, cache: 8_400, output: 1_040, reasoning: 220, credits: 35 }),
+  prompt(sessions[1], 1, { requests: 3, tools: 6, input: 23_900, cache: 13_800, output: 1_410, reasoning: 510, credits: 51 }),
+  prompt(sessions[1], 2, { requests: 2, tools: 5, input: 14_300, cache: 7_900, output: 840, reasoning: 230, credits: 33 }),
+  prompt(sessions[2], 1, { requests: 4, tools: 8, input: 39_500, cache: 30_200, output: 2_230, reasoning: 910, credits: 72 }),
+  prompt(sessions[2], 2, { requests: 5, tools: 12, input: 51_200, cache: 38_100, output: 3_080, reasoning: 1_270, credits: 91 }),
+  prompt(sessions[2], 3, { requests: 3, tools: 7, input: 27_300, cache: 17_700, output: 2_140, reasoning: 720, credits: 48 }),
+  prompt(sessions[3], 1, { requests: 2, tools: 2, input: 12_800, cache: 8_200, output: 780, reasoning: 110, credits: 25 }),
+  prompt(sessions[4], 1, { requests: 6, tools: 9, input: 41_000, cache: 29_500, output: 2_900, reasoning: 600, credits: 37 })
 ];
 
 function sessionForScenario(session: Session, scenario: Scenario): Session {
@@ -309,13 +318,16 @@ export function mockOverview(scenario: Scenario, days: number): Overview {
   const selectedSessions = sessions
     .filter((session) => Date.parse(session.startedAt) >= cutoff)
     .map((session) => sessionForScenario(session, scenario));
-  const modeledResults = selectedSessions.flatMap((session) => session.scenarioResult ? [session.scenarioResult] : []);
+  // Like the live API, automated sessions stay listed but only the automated pair of totals counts them.
+  const portfolioSessions = selectedSessions.filter((session) => session.sessionMode !== 'automated');
+  const automatedSessions = selectedSessions.filter((session) => session.sessionMode === 'automated');
+  const modeledResults = portfolioSessions.flatMap((session) => session.scenarioResult ? [session.scenarioResult] : []);
   const sum = (select: (result: ScenarioResult) => number) => modeledResults.reduce((total, result) => total + select(result), 0);
   const estimatedManualMinutes = sum((result) => result.estimatedManualMinutes);
   const estimatedMinutesSaved = sum((result) => result.estimatedMinutesSaved);
   const estimatedManualLaborCostUsd = sum((result) => result.estimatedManualLaborCostUsd);
   const estimatedGrossCostSavingsUsd = sum((result) => result.estimatedGrossCostSavingsUsd);
-  const aiCostUsd = selectedSessions.reduce((total, session) => total + session.aiCostUsd, 0);
+  const aiCostUsd = portfolioSessions.reduce((total, session) => total + session.aiCostUsd, 0);
   const netValueUsd = sum((result) => result.netValueUsd);
 
   return {
@@ -323,10 +335,12 @@ export function mockOverview(scenario: Scenario, days: number): Overview {
     days,
     modelingStatus: modeledResults.length > 0 ? 'available' : 'unavailable',
     totals: {
-      sessions: selectedSessions.length,
-      prompts: selectedSessions.reduce((total, session) => total + session.promptCount, 0),
-      durationSeconds: selectedSessions.reduce((total, session) => total + session.durationSeconds, 0),
+      sessions: portfolioSessions.length,
+      prompts: portfolioSessions.reduce((total, session) => total + session.promptCount, 0),
+      durationSeconds: portfolioSessions.reduce((total, session) => total + session.durationSeconds, 0),
       aiCostUsd: rounded(aiCostUsd),
+      automatedSessions: automatedSessions.length,
+      automatedAiCostUsd: rounded(automatedSessions.reduce((total, session) => total + session.aiCostUsd, 0)),
       taskTimeReduction: estimatedManualMinutes === 0 ? null : rounded(estimatedMinutesSaved / estimatedManualMinutes),
       estimatedManualMinutes: rounded(estimatedManualMinutes),
       estimatedMinutesSaved: rounded(estimatedMinutesSaved),
@@ -359,7 +373,7 @@ function insightMetric(overrides: Partial<InsightMetric> & Pick<InsightMetric, '
     action: 'Use this synthetic signal to exercise the interface; validate decisions against live evidence.',
     severity: null,
     severityLabel: null,
-    aggregateSize: 4,
+    aggregateSize: sessions.length,
     minimumBaseline: 5,
     relatedMetrics: [],
     signal: { level: 'not_rated', direction: null, attentionBoundary: null, dangerBoundary: null, minimumSamples: 0 },
@@ -372,7 +386,7 @@ const insightMetrics: InsightMetric[] = [
   insightMetric({ key: 'session_usage_coverage', label: 'Sessions with complete usage', category: 'Evidence', group: 'evidence', scope: 'portfolio', unit: 'ratio', current: 1, description: 'Share of settled sessions carrying the complete usage contract.', signal: { level: 'none', direction: 'minimum', attentionBoundary: 1, dangerBoundary: 0.95, minimumSamples: 1 } }),
   insightMetric({ key: 'cache_read_ratio', label: 'Session cache reuse', category: 'Context', unit: 'ratio', current: 0.67, previous: 0.59, trend: 'improving', description: 'Share of input tokens served from cache.', zone: 'typical', status: 'normal', signal: { level: 'none', direction: 'minimum', attentionBoundary: 0.5, dangerBoundary: 0.2, minimumSamples: 5 }, reference: { kind: 'best_practice', support: 'direct', label: 'OpenAI prompt caching', url: 'https://developers.openai.com/api/docs/guides/prompt-caching', note: 'Defines cached-token reuse.' } }),
   insightMetric({ key: 'uncached_input_per_request', label: 'Uncached input per request', category: 'Context', scope: 'request', unit: 'tokens', current: 4_820, previous: 3_600, trend: 'worsening', description: 'Median uncached input supplied to each model request.', zone: 'elevated', status: 'watch', severity: 0.4, severityLabel: 'Elevated', signal: { level: 'high', direction: 'maximum', attentionBoundary: 4_000, dangerBoundary: 8_000, minimumSamples: 5 } }),
-  insightMetric({ key: 'tool_calls_per_prompt', label: 'Tool calls per prompt', category: 'Execution', scope: 'prompt', unit: 'calls', current: 4.7, previous: 4.2, trend: 'up', description: 'Median tool calls grouped under each direct user turn.' }),
+  insightMetric({ key: 'tool_calls_per_prompt', label: 'Tool calls per prompt', category: 'Execution', scope: 'prompt', unit: 'calls', current: 4.7, previous: 4.2, trend: 'up', description: 'Median tool calls grouped under each user message.' }),
   insightMetric({ key: 'output_tokens', label: 'Output per request', category: 'Generation', scope: 'request', unit: 'tokens', current: 690, previous: 740, trend: 'down', description: 'Median output tokens per model request.', signal: { level: 'none', direction: 'maximum', attentionBoundary: 2_000, dangerBoundary: 8_000, minimumSamples: 5 } }),
   insightMetric({ key: 'ai_cost_usd', label: 'AI usage per request', category: 'Cost', scope: 'request', unit: 'usd', current: 0.14, previous: 0.13, trend: 'up', description: 'AI-credit dollar equivalent per model request.' })
 ];
@@ -392,10 +406,9 @@ export function mockInsights(days: number): Insights {
     },
     evidenceHealth: {
       sessionUsageCoverage: 1,
-      completeSessions: 4,
-      eligibleSessions: 4,
-      directUsageSessions: 1,
-      otelUsageSessions: 3,
+      completeSessions: sessions.length,
+      eligibleSessions: sessions.length,
+      otelUsageSessions: sessions.length,
       requiredCoverage: 1,
       integrityPassed: true,
       degraded: false,
@@ -430,7 +443,7 @@ export const mockMethodology: Methodology = {
     deliveryCostReduction: 'R_delivery,s = Delta_C_gross,s / C_manual,s',
     benefit: 'B_s = (T_saved,s / 60) x H x rho',
     breakEven: 'T_break_even = T_AI + (60 x C_AI) / (H x rho)',
-    aiCost: 'C_AI = sum(copilot_usage_nano_aiu) / 1e11',
+    aiCost: 'C_AI = sum(github.copilot.nano_aiu over chat spans) / 1e11',
     roi: 'ROI_s = (B_s - C_AI) / C_AI'
   }
 };
@@ -442,12 +455,13 @@ function csvCell(value: string | number | boolean | null): string {
 
 export function mockCsv(): string {
   const rows: Array<Array<string | number | boolean | null>> = [[
-    'record_type', 'session_id', 'prompt_id', 'started_at', 'status', 'ai_cost_usd', 'prompt_content'
+    'record_type', 'session_id', 'prompt_id', 'started_at', 'status', 'surface', 'session_mode', 'exclusion_reason', 'ai_cost_usd'
   ]];
   for (const session of sessions) {
-    rows.push(['session', session.experiment, '', session.startedAt, session.status, session.aiCostUsd, '']);
+    const attribution = [session.surface, session.sessionMode, session.exclusionReason];
+    rows.push(['session', session.experiment, '', session.startedAt, session.status, ...attribution, session.aiCostUsd]);
     for (const item of mockSessionPrompts(session.experiment)) {
-      rows.push(['prompt', session.experiment, item.promptId, item.startedAt, '', item.aiCostUsd, item.contentAvailable ? item.content : '']);
+      rows.push(['prompt', session.experiment, item.promptId, item.startedAt, '', ...attribution, item.aiCostUsd]);
     }
   }
   return `${rows.map((row) => row.map(csvCell).join(',')).join('\r\n')}\r\n`;

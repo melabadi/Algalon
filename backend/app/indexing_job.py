@@ -15,13 +15,8 @@ PREPARATION_TIMEOUT_SECONDS = 15
 
 def prepare_in_process(
     database: Path, work: dict[str, Any], content_enabled: bool,
-    log_index: dict[str, tuple[Path, int, int]], log_error: str | None,
 ) -> tuple[dict[str, Any], list[dict[str, Any]] | None]:
-    payload = {
-        "database": str(database), "work": work, "contentEnabled": content_enabled,
-        "logs": {identifier: [str(path), modified, size] for identifier, (path, modified, size) in log_index.items()},
-        "logError": log_error,
-    }
+    payload = {"database": str(database), "work": work, "contentEnabled": content_enabled}
     try:
         result = subprocess.run(
             [sys.executable, "-B", "-m", __name__], input=json.dumps(payload),
@@ -51,12 +46,7 @@ def main() -> None:
 
     store = ValueStore.__new__(ValueStore)
     store._connect = connect
-    store.isolate_log_io = False
-    store._log_discovery_error = payload["logError"]
-    store._chat_log_index = {
-        identifier: (Path(entry[0]), entry[1], entry[2])
-        for identifier, entry in payload["logs"].items()
-    }
+    store.isolate_preparation = False
     try:
         artifact, groups = store._prepare_index_work(payload["work"], payload["contentEnabled"])
         result = {"artifact": artifact, "groups": groups}

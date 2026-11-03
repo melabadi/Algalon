@@ -378,7 +378,6 @@ class _Window:
     samples: dict[str, list[float]]
     validation: tuple[int, int]
     usage_coverage: tuple[int, int]
-    direct_usage_sessions: int
     otel_usage_sessions: int
 
 
@@ -410,7 +409,7 @@ MAX_MODEL_ROWS = 10_000
 def _complete_usage(usage: Any, duration_seconds: Any) -> bool:
     if not isinstance(usage, dict) or any(field not in usage for field in USAGE_FIELDS):
         return False
-    if usage.get("source") not in {"otel_traces", "copilot_turn_log"}:
+    if usage.get("source") != "otel_traces":
         return False
     if any(
         not isinstance(usage[field], int) or isinstance(usage[field], bool) or usage[field] < 0
@@ -538,7 +537,7 @@ def _complete_usage(usage: Any, duration_seconds: Any) -> bool:
         field: sum(phases[name][field] for name in PHASE_NAMES)
         for field in PHASE_INTEGER_FIELDS
     }
-    if usage["source"] == "otel_traces" and any(
+    if any(
         phase_counter_totals[phase_field] > usage[usage_field]
         for phase_field, usage_field in (
             ("modelSpans", "chatSpans"),
@@ -583,8 +582,6 @@ def _complete_usage(usage: Any, duration_seconds: Any) -> bool:
     output_total = float(usage["outputTokens"])
     generation_total = reasoning_total + output_total
     if not isfinite(generation_total):
-        return False
-    if usage["source"] == "copilot_turn_log" and (requests <= 0 or ai_credits <= 0):
         return False
     if requests == 0 and any(
         usage[field] != 0
@@ -644,7 +641,6 @@ def _collect(
     coding_sessions_with_validation = 0
     complete_sessions = 0
     eligible_sessions = 0
-    direct_usage_sessions = 0
     otel_usage_sessions = 0
     parsed_sessions = [
         (session, _parse_iso(session.get("completedAt"))) for session in sessions
@@ -667,8 +663,7 @@ def _collect(
         if not _complete_usage(usage, duration_seconds):
             continue
         complete_sessions += 1
-        direct_usage_sessions += int(usage["source"] == "copilot_turn_log")
-        otel_usage_sessions += int(usage["source"] == "otel_traces")
+        otel_usage_sessions += 1
         requests = float(usage["chatSpans"])
         input_tokens = float(usage["inputTokens"])
         cache_tokens = float(usage["cacheReadTokens"])
@@ -698,7 +693,6 @@ def _collect(
         samples=samples,
         validation=(coding_sessions_with_validation, coding_sessions),
         usage_coverage=(complete_sessions, eligible_sessions),
-        direct_usage_sessions=direct_usage_sessions,
         otel_usage_sessions=otel_usage_sessions,
     )
 
@@ -773,7 +767,7 @@ def build_insights(
             ),
             "coverageRule": (
                 "Coverage metrics use every settled session in the selected period. A session is "
-                f"an editor-window lifetime rather than a task, so it becomes eligible only "
+                f"one Copilot runtime conversation rather than a task, so it becomes eligible only "
                 f"{SESSION_SETTLE_SECONDS // 60} minutes after its last observed span and carries no behavioural "
                 "threshold."
             ),
@@ -782,7 +776,6 @@ def build_insights(
             "sessionUsageCoverage": coverage["current"],
             "completeSessions": complete_sessions,
             "eligibleSessions": eligible_sessions,
-            "directUsageSessions": window.direct_usage_sessions,
             "otelUsageSessions": window.otel_usage_sessions,
             "requiredCoverage": REQUIRED_SESSION_USAGE_COVERAGE,
             "integrityPassed": integrity_passed,

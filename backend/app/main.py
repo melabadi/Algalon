@@ -21,10 +21,9 @@ from .store import SCENARIOS, ValueStore
 database_path = Path(os.environ.get("COPILOT_VALUE_DB", "/data/app/value.db"))
 session_directory = Path(os.environ.get("COPILOT_VALUE_SESSION_DIR", "/data/value/sessions"))
 trace_archive = Path(os.environ.get("COPILOT_VALUE_TRACE_ARCHIVE", "/data/otel/traces.json"))
-chat_log_root = Path(os.environ.get("COPILOT_VALUE_CHAT_LOG_ROOT", "/vscode-workspace-storage"))
 config_path = Path(os.environ.get("COPILOT_VALUE_CONFIG", "/app/config/value-model.local.json"))
 static_directory = Path(os.environ.get("COPILOT_VALUE_STATIC_DIR", "/app/static"))
-store = ValueStore(database_path, session_directory, trace_archive, config_path, chat_log_root, isolate_log_io=True)
+store = ValueStore(database_path, session_directory, trace_archive, config_path, isolate_preparation=True)
 logger = logging.getLogger(__name__)
 indexing_failure: str | None = None
 indexing_started_at: float | None = None
@@ -122,6 +121,11 @@ def otel_records(
     limit: int = Query(1_000, ge=1, le=10_000),
 ) -> dict:
     return store.otel_records(after, limit)
+
+
+@app.get("/api/internal/runtime-migration", include_in_schema=False)
+def runtime_migration() -> dict:
+    return store.runtime_migration_status()
 
 
 @app.get("/api/overview")

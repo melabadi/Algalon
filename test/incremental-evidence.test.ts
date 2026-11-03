@@ -10,9 +10,9 @@ import {
 
 const phasePatterns = {
   planning: ['todo'],
-  research: ['read'],
+  research: ['view'],
   coding: ['apply_patch'],
-  validation: ['run_in_terminal']
+  validation: ['powershell']
 };
 
 function attribute(key: string, stringValue: string) {
@@ -30,8 +30,10 @@ function traceRecord(spanId: string, offsetSeconds: number) {
     resourceSpans: [{
       resource: {
         attributes: [
-          attribute('service.name', 'copilot-chat'),
-          attribute('session.id', 'session-a')
+          attribute('service.name', 'github-copilot'),
+          attribute('algalon.session.key', 'session-a'),
+          attribute('algalon.source.surface', 'cli'),
+          attribute('algalon.session.mode', 'interactive')
         ]
       },
       scopeSpans: [{
@@ -41,7 +43,10 @@ function traceRecord(spanId: string, offsetSeconds: number) {
           name: 'chat model',
           startTimeUnixNano: nanos(offsetSeconds),
           endTimeUnixNano: nanos(offsetSeconds + 1),
-          attributes: [integerAttribute('copilot_chat.copilot_usage_nano_aiu', 1_000_000_000)]
+          attributes: [
+            attribute('gen_ai.operation.name', 'chat'),
+            integerAttribute('github.copilot.nano_aiu', 1_000_000_000)
+          ]
         }]
       }]
     }]

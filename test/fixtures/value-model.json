@@ -19,10 +19,10 @@
     "typingWordsPerMinute": 52,
     "charactersPerWord": 5,
     "phaseToolPatterns": {
-      "planning": ["manage_todo_list", "todo"],
-      "research": ["search", "read", "fetch", "grep"],
-      "coding": ["apply_patch", "create_file", "rename_symbol"],
-      "validation": ["run_in_terminal", "get_errors", "playwright", "screenshot"]
+      "planning": ["ask_user", "todo"],
+      "research": ["view", "rg", "grep", "glob"],
+      "coding": ["edit", "create", "apply_patch"],
+      "validation": ["powershell", "bash", "playwright", "screenshot"]
     },
     "scenarios": {
       "pessimistic": {

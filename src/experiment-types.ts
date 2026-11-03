@@ -1,5 +1,6 @@
 import type { BenchmarkPhase } from './benchmark.js';
 import type { PhaseEvidence } from './phase-evidence.js';
+import type { SessionMode, SessionSurface } from './runtime-telemetry.js';
 
 export interface ModelUsage {
   model: string;
@@ -22,7 +23,7 @@ export interface SessionTimeEvidence {
 }
 
 export interface ExperimentUsage extends SessionTimeEvidence {
-  source: 'otel_traces' | 'copilot_turn_log';
+  source: 'otel_traces';
   chatSpans: number;
   inputTokens: number;
   cacheReadTokens: number;
@@ -36,7 +37,8 @@ export interface ExperimentUsage extends SessionTimeEvidence {
 
 export interface TraceSession {
   sessionId: string;
-  chatSessionIds?: string[];
+  surface: SessionSurface;
+  mode: SessionMode;
   startedAt: string;
   endedAt: string;
   aiCostUsd: number;

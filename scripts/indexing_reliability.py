@@ -22,6 +22,7 @@ from backend.app.store import ValueStore
 
 
 ROOT = Path(__file__).resolve().parents[1]
+INERT_SPAN_ID = "fffffffffffffff0"
 
 
 class MetricsSink(BaseHTTPRequestHandler):
@@ -49,21 +50,19 @@ def request_json(url: str, payload: dict | None = None):
 
 def trace_payload(session: int, ordinal: int, started: int, *, prompt: bool = False) -> dict:
     values = {
-        "gen_ai.conversation.id": f"synthetic-conversation-{session}",
+        "gen_ai.operation.name": "chat",
+        "gen_ai.conversation.id": f"synthetic-session-{session}",
         "gen_ai.request.model": "synthetic-model",
         "gen_ai.usage.input_tokens": 100,
         "gen_ai.usage.cache_read.input_tokens": 80,
         "gen_ai.usage.output_tokens": 10,
-        "copilot_chat.copilot_usage_nano_aiu": 1_000_000,
+        "github.copilot.nano_aiu": 1_000_000,
     }
-    if prompt or ordinal == 0:
-        values["copilot_chat.user_request"] = f"Synthetic prompt {ordinal}"
     return {"resourceSpans": [{
         "resource": {"attributes": [
-            {"key": "service.name", "value": {"stringValue": "copilot-chat"}},
-            {"key": "session.id", "value": {"stringValue": f"synthetic-session-{session}"}},
+            {"key": "service.name", "value": {"stringValue": "github-copilot"}},
         ]},
-        "scopeSpans": [{"spans": [{
+        "scopeSpans": [{"scope": {"name": "github.copilot"}, "spans": [{
             "traceId": f"{session + 1:016x}{ordinal + 1:016x}" if prompt else f"{session + 1:032x}",
             "spanId": f"{session + 1:08x}{ordinal + 1:08x}",
             "name": "chat synthetic-model",
@@ -72,6 +71,26 @@ def trace_payload(session: int, ordinal: int, started: int, *, prompt: bool = Fa
             "attributes": [
                 {"key": key, "value": {"intValue" if isinstance(value, int) else "stringValue": str(value)}}
                 for key, value in values.items()
+            ],
+        }]}],
+    }]}
+
+
+def inert_span_payload(session: int, started: int) -> dict:
+    """An in-bounds agent span that changes no usage, phase, or session-bound evaluation input."""
+    return {"resourceSpans": [{
+        "resource": {"attributes": [
+            {"key": "service.name", "value": {"stringValue": "github-copilot"}},
+        ]},
+        "scopeSpans": [{"scope": {"name": "github.copilot"}, "spans": [{
+            "traceId": f"{session + 1:032x}",
+            "spanId": INERT_SPAN_ID,
+            "name": "invoke_agent",
+            "startTimeUnixNano": str((started + 10) * 1_000_000),
+            "endTimeUnixNano": str((started + 20) * 1_000_000),
+            "attributes": [
+                {"key": "gen_ai.operation.name", "value": {"stringValue": "invoke_agent"}},
+                {"key": "gen_ai.conversation.id", "value": {"stringValue": f"synthetic-session-{session}"}},
             ],
         }]}],
     }]}
@@ -122,7 +141,6 @@ def run_reliability(history_spans: int, sessions: int, updates: int, *, interval
             "COPILOT_VALUE_SESSION_DIR": str(output),
             "COPILOT_VALUE_OUTPUT_DIR": str(output),
             "COPILOT_VALUE_TRACE_ARCHIVE": str(root / "traces.json"),
-            "COPILOT_VALUE_CHAT_LOG_ROOT": str(root / "empty-logs"),
             "COPILOT_VALUE_STATIC_DIR": str(root / "static"),
             "COPILOT_VALUE_OTEL_INBOX_URL": api + "/api/internal/otel/records",
             "COPILOT_VALUE_VICTORIA_URL": sink_url,
@@ -216,6 +234,21 @@ def run_reliability(history_spans: int, sessions: int, updates: int, *, interval
             prompts = request_json(api + f"/api/sessions/{experiment(session)}/prompts")
             if sum(prompt["outputTokens"] for prompt in prompts) != counts[session] * 10:
                 raise AssertionError("Prompt counters differ from committed synthetic evidence")
+        artifact_path = output / f"{experiment(0)}.json"
+        published_cursor = json.loads(artifact_path.read_text(encoding="utf-8"))["inboxCursor"]
+        request_json(api + "/api/internal/otel/v1/traces", inert_span_payload(0, started))
+        inbox = request_json(api + f"/api/internal/otel/records?after={published_cursor}&limit=10000")
+        if not any(
+            span.get("spanId") == INERT_SPAN_ID
+            for record in inbox["records"]
+            for resource_span in record["resourceSpans"]
+            for scope_span in resource_span["scopeSpans"]
+            for span in scope_span["spans"]
+        ):
+            raise AssertionError("The inert runtime span did not enter the inbox")
+        await_condition(lambda: request_json(api + "/api/indexing")["state"] == "current", 45)
+        if json.loads(artifact_path.read_text(encoding="utf-8"))["inboxCursor"] < inbox["nextCursor"]:
+            raise AssertionError("The worker did not advance the unchanged session's inbox cursor")
         ordered = sorted(latencies.values())
         percentile = lambda fraction: ordered[max(0, math.ceil(len(ordered) * fraction) - 1)]
         report = {

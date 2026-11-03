@@ -1,5 +1,7 @@
 import assert from 'node:assert/strict';
-import { readFile } from 'node:fs/promises';
+import { mkdtemp, readFile, readdir, rm, writeFile } from 'node:fs/promises';
+import os from 'node:os';
+import path from 'node:path';
 import test from 'node:test';
 import {
   canonicalizeUsageCosts,
@@ -9,6 +11,7 @@ import {
   migrationUsageFromRefreshedEvidence,
   modelConfigurationSignature,
   publishAndCommitSession,
+  refreshArtifactInboxCursor,
   SESSION_CALCULATION_VERSION,
   selectSessionSnapshots,
   sessionCoverageRegressed,
@@ -63,38 +66,28 @@ test('expands a tracked session start when late evidence predates discovery', ()
   assert.throws(() => earliestSessionStart(trackedStart, 'invalid'), /valid timestamps/);
 });
 
-test('invalidates cached direct usage when either session bound expands', async () => {
-  const directUsage = usage(0.25);
+test('expands session bounds without mutating the tracked session until publication commits', async () => {
   const tracked = {
     startedAt: '2026-08-05T10:00:00Z',
-    publishedThrough: '2026-08-05T10:01:00Z',
-    directLogSignature: 'old-signature',
-    directUsage
+    publishedThrough: '2026-08-05T10:01:00Z'
   };
   const startExpanded = sessionStateForObservedBounds(
     tracked, '2026-08-05T09:59:59Z', tracked.publishedThrough
   );
   assert.equal(startExpanded.boundsExpanded, true);
   assert.equal(startExpanded.candidate.startedAt, '2026-08-05T09:59:59Z');
-  assert.equal(startExpanded.candidate.directLogSignature, undefined);
-  assert.equal(startExpanded.candidate.directUsage, undefined);
 
   const endExpanded = sessionStateForObservedBounds(
     tracked, tracked.startedAt, '2026-08-05T10:01:01Z'
   );
   assert.equal(endExpanded.boundsExpanded, true);
-  assert.equal(endExpanded.candidate.directLogSignature, undefined);
-  assert.equal(endExpanded.candidate.directUsage, undefined);
   assert.equal(tracked.startedAt, '2026-08-05T10:00:00Z');
-  assert.equal(tracked.directLogSignature, 'old-signature');
-  assert.equal(tracked.directUsage, directUsage);
 
   const unchanged = sessionStateForObservedBounds(
     tracked, tracked.startedAt, tracked.publishedThrough
   );
   assert.equal(unchanged.boundsExpanded, false);
-  assert.equal(unchanged.candidate.directLogSignature, 'old-signature');
-  assert.equal(unchanged.candidate.directUsage, directUsage);
+  assert.equal(unchanged.candidate.startedAt, tracked.startedAt);
 
   const sessions = new Map([['private', tracked]]);
   await assert.rejects(
@@ -234,6 +227,45 @@ test('publishes repository-agnostic OTel sessions with conservative source evide
   assert.match(payloads[1] ?? '', /copilot_value_experiment_ai_cost_usd\{evidence="observed_ai_credits",experiment="cross-repo-no-cost",usage_source="otel_traces"\} 0/);
 });
 
+test('keeps observed usage but models no developer value for explicitly automated sessions', async () => {
+  const config = valueConfigSchema.parse(JSON.parse(await readFile('test/fixtures/value-model.json', 'utf8')));
+  const payloads: string[] = [];
+  const automated = await evaluateOtelOnlyWindow({
+    experiment: 'sdk-automation',
+    usage: usage(0.25),
+    startedAt: '2026-08-05T10:00:00Z',
+    completedAt: '2026-08-05T10:01:00Z',
+    config,
+    surface: 'sdk',
+    mode: 'automated'
+  }, {
+    publish: async (payload) => { payloads.push(payload); }
+  });
+
+  assert.equal(automated.status, 'excluded_automated');
+  assert.equal(automated.exclusionReason, 'automated_session');
+  assert.equal(automated.benchmark, null);
+  assert.equal(automated.usage.aiCostUsd, 0.25);
+  assert.match(payloads[0] ?? '', /copilot_value_experiment_info\{experiment="sdk-automation",session_mode="automated",source="local_otel",surface="sdk"\} 1/);
+  assert.match(payloads[0] ?? '', /copilot_value_experiment_ai_cost_usd\{evidence="observed_ai_credits",experiment="sdk-automation",usage_source="otel_traces"\} 0\.25/);
+  assert.doesNotMatch(payloads[0] ?? '', /copilot_value_experiment_scenario/);
+
+  const interactive = await evaluateOtelOnlyWindow({
+    experiment: 'cli-interactive',
+    usage: usage(0.25),
+    startedAt: '2026-08-05T10:00:00Z',
+    completedAt: '2026-08-05T10:01:00Z',
+    config,
+    surface: 'cli',
+    mode: 'interactive'
+  }, {
+    publish: async (payload) => { payloads.push(payload); }
+  });
+  assert.equal(interactive.status, 'published');
+  assert.equal(interactive.exclusionReason, undefined);
+  assert.notEqual(interactive.benchmark, null);
+});
+
 test('changes the session model signature when active assumptions change', async () => {
   const config = valueConfigSchema.parse(
     JSON.parse(await readFile('test/fixtures/value-model.json', 'utf8'))
@@ -250,7 +282,6 @@ test('changes the session model signature when active assumptions change', async
 
 test('requires refreshed phase evidence before migrating a retained session', () => {
   const retained = usage(0.25);
-  retained.source = 'copilot_turn_log';
   retained.aiCostUsd = 99;
   retained.models = [{
     model: 'model', requests: 2, inputTokens: 20, cacheReadTokens: 0,
@@ -268,7 +299,7 @@ test('requires refreshed phase evidence before migrating a retained session', ()
     startedAt = trackedStartedAt,
     endedAt = completedAt
   ): TraceSessionEvidence => ({
-    session: { sessionId: 'private', startedAt, endedAt, aiCostUsd: 0.25 },
+    session: { sessionId: 'private', surface: 'cli', mode: 'interactive', startedAt, endedAt, aiCostUsd: 0.25 },
     usage: refreshed
   });
 
@@ -298,4 +329,48 @@ test('requires refreshed phase evidence before migrating a retained session', ()
   assert.equal(migrated?.aiCostUsd, 0.25);
   assert.equal(migrated?.models.length, 0);
   assert.equal(canonicalizeUsageCosts(retained).models[0]?.aiCostUsd, 0.25);
+});
+
+test('advances only current artifacts to a newer inbox cursor without changing their values', async (t) => {
+  const directory = await mkdtemp(path.join(os.tmpdir(), 'algalon-artifact-cursor-'));
+  t.after(() => rm(directory, { recursive: true, force: true }));
+  const artifactPath = path.join(directory, 'session-20261029-120000-0123456789.json');
+  const artifact = {
+    calculationVersion: SESSION_CALCULATION_VERSION,
+    inboxCursor: 7,
+    experiment: 'session-20261029-120000-0123456789',
+    status: 'published',
+    usage: { aiCostUsd: 0.25 },
+    benchmark: null
+  };
+  await writeFile(artifactPath, `${JSON.stringify(artifact, null, 2)}\n`, 'utf8');
+  const read = async () => JSON.parse(await readFile(artifactPath, 'utf8')) as Record<string, unknown>;
+
+  assert.equal(await refreshArtifactInboxCursor(artifactPath, 12), true);
+  assert.deepEqual(await read(), { ...artifact, inboxCursor: 12 });
+  assert.deepEqual(Object.keys(await read()), Object.keys(artifact));
+  assert.deepEqual(await readdir(directory), [path.basename(artifactPath)]);
+
+  for (const cursor of [12, 9, undefined]) {
+    assert.equal(await refreshArtifactInboxCursor(artifactPath, cursor), false);
+  }
+  assert.equal((await read()).inboxCursor, 12);
+
+  const withoutCursor: Record<string, unknown> = { ...artifact };
+  delete withoutCursor.inboxCursor;
+  await writeFile(artifactPath, JSON.stringify(withoutCursor), 'utf8');
+  assert.equal(await refreshArtifactInboxCursor(artifactPath, 3), true);
+  assert.equal((await read()).inboxCursor, 3);
+
+  for (const content of [
+    JSON.stringify({ ...artifact, calculationVersion: SESSION_CALCULATION_VERSION - 1 }),
+    JSON.stringify([artifact]),
+    'null',
+    '{"truncated":'
+  ]) {
+    await writeFile(artifactPath, content, 'utf8');
+    assert.equal(await refreshArtifactInboxCursor(artifactPath, 99), false, content);
+    assert.equal(await readFile(artifactPath, 'utf8'), content);
+  }
+  assert.equal(await refreshArtifactInboxCursor(path.join(directory, 'missing.json'), 99), false);
 });

@@ -1,5 +1,10 @@
 export type Scenario = 'pessimistic' | 'base' | 'optimistic';
 export type ModelingStatus = 'available' | 'unavailable' | 'invalid';
+/** Where the Copilot runtime session ran; `mixed` means it was resumed across surfaces. */
+export type SessionSurface = 'cli' | 'vscode' | 'sdk' | 'app' | 'other' | 'mixed';
+/** `automated` only when the session carried the explicit `algalon.session.mode=automated` resource marker. */
+export type SessionMode = 'interactive' | 'automated';
+export type SessionExclusionReason = 'automated_session';
 
 export interface IndexingProgress {
   state: 'current' | 'catching_up' | 'blocked';
@@ -49,6 +54,10 @@ export interface Session {
   startedAt: string;
   completedAt: string;
   status: string;
+  surface: SessionSurface;
+  sessionMode: SessionMode;
+  /** Automated sessions keep observed usage and cost but never carry modeled value. */
+  exclusionReason: SessionExclusionReason | null;
   durationSeconds: number;
   aiCostUsd: number;
   aiCredits: number;
@@ -70,7 +79,7 @@ export interface Session {
   currentFormula?: boolean;
   modelingStatus: ModelingStatus;
   usage: {
-    source?: 'otel_traces' | 'copilot_turn_log';
+    source?: 'otel_traces';
     chatSpans?: number;
     inputTokens?: number;
     cacheReadTokens?: number;
@@ -94,11 +103,14 @@ export interface Overview {
   scenario: Scenario;
   days: number;
   modelingStatus: ModelingStatus;
+  /** Every total except the automated pair excludes automated sessions; `sessions` still lists them all. */
   totals: {
     sessions: number;
     prompts: number;
     durationSeconds: number;
     aiCostUsd: number;
+    automatedSessions: number;
+    automatedAiCostUsd: number;
     taskTimeReduction: number | null;
     estimatedManualMinutes: number;
     estimatedMinutesSaved: number;
@@ -141,7 +153,7 @@ export interface Prompt {
   reasoningTokensExact: string;
   aiCredits: number;
   aiCostUsd: number;
-  usageSource: 'copilot_turn_log' | 'otel_trace';
+  usageSource: 'otel_trace';
   models: Record<string, number | null>;
   modelsExact: Record<string, string>;
   roi: null;
@@ -215,7 +227,6 @@ export interface Insights {
     sessionUsageCoverage: number | null;
     completeSessions: number;
     eligibleSessions: number;
-    directUsageSessions: number;
     otelUsageSessions: number;
     requiredCoverage: number;
     integrityPassed: boolean;

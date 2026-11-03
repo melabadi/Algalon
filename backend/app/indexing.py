@@ -10,7 +10,6 @@ from time import time
 from typing import Any, Callable
 
 from .session_identity import public_session_digest
-from .trace_archive import attributes
 
 
 MAX_ARTIFACT_BYTES = 16 * 1024 * 1024
@@ -73,23 +72,6 @@ def initialize_indexing(connection: sqlite3.Connection) -> None:
         )
     """)
     connection.execute("CREATE INDEX IF NOT EXISTS idx_indexing_artifact_experiment ON indexing_artifacts(experiment)")
-    connection.execute("""
-        CREATE TABLE IF NOT EXISTS indexing_conversations (
-            session_id TEXT NOT NULL,
-            conversation_id TEXT NOT NULL,
-            PRIMARY KEY(session_id, conversation_id)
-        )
-    """)
-    connection.execute("""
-        CREATE INDEX IF NOT EXISTS idx_indexing_conversation
-        ON indexing_conversations(conversation_id, session_id)
-    """)
-    connection.execute("""
-        CREATE TABLE IF NOT EXISTS indexing_logs (
-            conversation_id TEXT PRIMARY KEY,
-            signature TEXT NOT NULL
-        )
-    """)
     if not connection.execute("SELECT 1 FROM otel_records LIMIT 1").fetchone():
         connection.execute(
             "INSERT OR IGNORE INTO store_metadata (key, value) VALUES ('indexing_queue_v1', 'complete')"
@@ -112,7 +94,6 @@ def bootstrap_indexing(connection: sqlite3.Connection, page_size: int = 5_000) -
                     "SELECT MAX(cursor) FROM otel_records WHERE session_id = ?", (row["session_id"],)
                 ).fetchone()[0]
                 enqueue_session(connection, row["session_id"], latest)
-            record_conversations(connection, row["session_id"], row["record_json"])
         if rows:
             connection.execute("""
                 INSERT INTO store_metadata VALUES ('indexing_bootstrap_cursor', ?)
@@ -185,34 +166,6 @@ def complete_work(connection: sqlite3.Connection, work: sqlite3.Row) -> None:
     ))
 
 
-def record_conversations(connection: sqlite3.Connection, session_id: str, payload: str) -> None:
-    try:
-        record = json.loads(payload)
-    except (ValueError, RecursionError):
-        return
-    if not isinstance(record, dict) or not isinstance(record.get("resourceSpans"), list):
-        return
-    for resource in record["resourceSpans"]:
-        if not isinstance(resource, dict) or not isinstance(resource.get("scopeSpans"), list):
-            continue
-        for scope in resource.get("scopeSpans", []):
-            if not isinstance(scope, dict) or not isinstance(scope.get("spans"), list):
-                continue
-            for span in scope.get("spans", []):
-                if not isinstance(span, dict) or not isinstance(span.get("attributes"), list):
-                    continue
-                safe_attributes = [value for value in span["attributes"] if (
-                    isinstance(value, dict) and isinstance(value.get("value"), dict)
-                )]
-                values = attributes(safe_attributes)
-                conversation = values.get("gen_ai.conversation.id") or values.get("copilot_chat.chat_session_id")
-                if conversation:
-                    connection.execute("""
-                        INSERT INTO indexing_conversations VALUES (?, ?)
-                        ON CONFLICT DO NOTHING
-                    """, (session_id, str(conversation)))
-
-
 def enqueue_artifact(connection: sqlite3.Connection, experiment: str, changed: bool) -> None:
     matches = connection.execute(
         "SELECT work_key FROM indexing_work WHERE session_digest = ? AND session_id IS NOT NULL",
@@ -279,32 +232,6 @@ def stage_artifacts(
             enqueue_artifact(connection, row[0], False)
 
 
-def stage_log_changes(
-    connection: sqlite3.Connection,
-    logs: dict[str, tuple[Path, int, int]],
-    *,
-    force: bool = False,
-) -> None:
-    previous = {row[0]: row[1] for row in connection.execute("SELECT conversation_id, signature FROM indexing_logs")}
-    current = {identifier: json.dumps([str(path), modified, size]) for identifier, (path, modified, size) in logs.items()}
-    changed = {identifier for identifier in previous.keys() | current.keys() if previous.get(identifier) != current.get(identifier)}
-    if force:
-        changed.update(current)
-    with connection:
-        for identifier in changed:
-            for row in connection.execute(
-                "SELECT session_id FROM indexing_conversations WHERE conversation_id = ?", (identifier,)
-            ).fetchall():
-                enqueue_session(connection, row[0])
-            if identifier in current:
-                connection.execute("""
-                    INSERT INTO indexing_logs VALUES (?, ?)
-                    ON CONFLICT(conversation_id) DO UPDATE SET signature = excluded.signature
-                """, (identifier, current[identifier]))
-            else:
-                connection.execute("DELETE FROM indexing_logs WHERE conversation_id = ?", (identifier,))
-
-
 def write_prompts(connection: sqlite3.Connection, experiment: str, groups: list[dict[str, Any]]) -> None:
     from .session_identity import prompt_id
 
@@ -337,12 +264,10 @@ def indexing_status(connection: sqlite3.Connection, experiment: str | None = Non
     blocked = [row for row in pending if row["error_code"] and row["error_code"] not in waiting_codes]
     oldest = max((time() - row["pending_since"] for row in pending if row["pending_since"] is not None), default=0)
     metadata = dict(connection.execute(
-        "SELECT key, value FROM store_metadata WHERE key IN ('indexing_last_discovery', 'indexing_discovery_error', 'indexing_queue_v1')"
+        "SELECT key, value FROM store_metadata WHERE key IN ('indexing_last_discovery', 'indexing_queue_v1')"
     ).fetchall())
     last_discovery = float(metadata.get("indexing_last_discovery", 0))
-    reason = metadata.get("indexing_discovery_error") or None
-    if not reason and blocked:
-        reason = blocked[0]["error_code"]
+    reason = blocked[0]["error_code"] if blocked else None
     if not reason and (oldest >= 60 or last_discovery and time() - last_discovery >= 60):
         reason = "stale"
     state = "blocked" if reason else "catching_up" if pending or not last_discovery or "indexing_queue_v1" not in metadata else "current"
