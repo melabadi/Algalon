@@ -4,6 +4,7 @@ import asyncio
 import importlib
 import os
 from pathlib import Path
+import sqlite3
 import sys
 import tempfile
 import unittest
@@ -31,7 +32,6 @@ class BackendAppTests(unittest.TestCase):
             "COPILOT_VALUE_DB": str(root / "value.db"),
             "COPILOT_VALUE_SESSION_DIR": str(sessions),
             "COPILOT_VALUE_TRACE_ARCHIVE": str(root / "traces.json"),
-            "COPILOT_VALUE_CHAT_LOG_ROOT": str(root / "workspace-storage"),
             "COPILOT_VALUE_CONFIG": str(config),
             "COPILOT_VALUE_STATIC_DIR": str(static),
         })
@@ -142,6 +142,41 @@ class BackendAppTests(unittest.TestCase):
         self.store.ingest_otlp_traces.assert_called_once_with({"resourceSpans": []})
         self.assertEqual(page.json()["nextCursor"], 4)
         self.store.otel_records.assert_called_once_with(3, 10)
+
+    def test_internal_otlp_route_maps_invalid_payloads_and_storage_failures(self) -> None:
+        self.store.ingest_otlp_traces.side_effect = ValueError("OTLP trace payload must contain resourceSpans.")
+        try:
+            invalid = self.client.post("/api/internal/otel/v1/traces", json={"spans": []})
+            self.assertEqual(invalid.status_code, 400)
+            self.assertEqual(invalid.json()["detail"], "OTLP trace payload must contain resourceSpans.")
+            self.store.ingest_otlp_traces.side_effect = sqlite3.OperationalError("database is locked")
+            locked = self.client.post("/api/internal/otel/v1/traces", json={"resourceSpans": []})
+            self.assertEqual(locked.status_code, 503)
+            self.assertEqual(locked.headers["Retry-After"], "5")
+            self.assertEqual(
+                locked.json()["detail"],
+                {"component": "ingestion", "reason": "storage_unavailable"},
+            )
+            self.assertNotIn("locked", locked.text)
+        finally:
+            self.store.ingest_otlp_traces.side_effect = None
+
+    def test_runtime_migration_route_reports_store_status(self) -> None:
+        status = {
+            "completed": True,
+            "backupPath": "/data/backups/vscode-legacy-20261029T180000Z",
+            "clearedSessions": 3,
+        }
+        self.store.runtime_migration_status.return_value = status
+
+        response = self.client.get("/api/internal/runtime-migration")
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json(), status)
+        self.store.runtime_migration_status.assert_called_once_with()
+        with patch.object(self.main, "store", self.real_store):
+            fresh = self.client.get("/api/internal/runtime-migration")
+        self.assertEqual(fresh.json(), {"completed": True, "backupPath": None, "clearedSessions": 0})
 
     def test_indexing_status_and_backpressure_routes(self) -> None:
         progress = {

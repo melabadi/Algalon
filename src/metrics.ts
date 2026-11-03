@@ -115,11 +115,20 @@ export function buildExperimentMetricPayload(
   experiment: string,
   startedAt: string,
   completedAt: Date,
-  calculatedAt = completedAt
+  calculatedAt = completedAt,
+  attribution?: { surface: string; mode: string }
 ): string {
   const labels = { experiment };
   const samples: MetricSample[] = [
-    { name: 'copilot_value_experiment_info', value: 1, labels: { ...labels, source: 'local_otel' } },
+    {
+      name: 'copilot_value_experiment_info',
+      value: 1,
+      labels: {
+        ...labels,
+        source: 'local_otel',
+        ...(attribution ? { surface: attribution.surface, session_mode: attribution.mode } : {})
+      }
+    },
     { name: 'copilot_value_experiment_start_timestamp_seconds', value: Math.floor(Date.parse(startedAt) / 1000), labels },
     { name: 'copilot_value_experiment_completion_timestamp_seconds', value: Math.floor(completedAt.getTime() / 1000), labels },
     { name: 'copilot_value_experiment_calculation_timestamp_seconds', value: Math.floor(calculatedAt.getTime() / 1000), labels },

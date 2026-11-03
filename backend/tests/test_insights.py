@@ -230,6 +230,34 @@ class BuildInsightsTests(unittest.TestCase):
         self.assertTrue(health["integrityPassed"])
         self.assertIsNone(health["message"])
 
+    def test_evidence_health_counts_complete_runtime_sessions_only(self) -> None:
+        result = self._result()
+        health = result["evidenceHealth"]
+
+        self.assertEqual(health["otelUsageSessions"], 5)
+        self.assertNotIn("directUsageSessions", health)
+        coverage_rule = result["zoneMethod"]["coverageRule"]
+        self.assertIn("one Copilot runtime conversation rather than a task", coverage_rule)
+        self.assertNotIn("editor-window", coverage_rule)
+
+    def test_vscode_direct_turn_usage_is_incomplete_evidence(self) -> None:
+        sessions = [_session(index, validation=index == 0) for index in range(5)]
+        sessions[0]["usage"]["source"] = "copilot_turn_log"
+
+        result = build_insights(sessions, [], 30, now=NOW)
+        health = result["evidenceHealth"]
+
+        self.assertEqual(health["eligibleSessions"], 5)
+        self.assertEqual(health["completeSessions"], 4)
+        self.assertEqual(health["otelUsageSessions"], 4)
+        self.assertFalse(health["integrityPassed"])
+        self.assertTrue(health["degraded"])
+        for metric in result["metrics"]:
+            if metric["key"] == "session_usage_coverage":
+                self.assertEqual(metric["current"], 0.8)
+            else:
+                self.assertIsNone(metric["current"], metric["key"])
+
     def test_metrics_are_unavailable_without_observations(self) -> None:
         result = build_insights([], [], 30, now=NOW)
         by_key = {metric["key"]: metric for metric in result["metrics"]}

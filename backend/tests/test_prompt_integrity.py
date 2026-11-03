@@ -1,44 +1,31 @@
 from __future__ import annotations
 
 from datetime import datetime, timezone
-import json
 from math import isfinite
-from pathlib import Path
-import tempfile
 import unittest
 
 from backend.app.insights import MAX_MODEL_ROWS, build_insights
-from backend.app.prompt_index import (
-    group_prompts,
-    prompt_group_counters_valid,
-    read_copilot_turns,
-)
+from backend.app.prompt_index import group_prompts, prompt_group_counters_valid
+from backend.tests.runtime_otlp import agent_span, attribute, chat_span, tool_span
 
 
 NOW = datetime(2026, 8, 21, tzinfo=timezone.utc)
+BASE_NANOS = 1_787_313_600_000_000_000
 
 
-def attribute(key: str, value: object, value_type: str = "stringValue") -> dict[str, object]:
-    return {"key": key, "value": {value_type: str(value)}}
+def trace_session(*spans: dict[str, object]) -> dict[str, object]:
+    timed = [
+        {**span, "_started": int(str(span["startTimeUnixNano"])) // 1_000_000}
+        for span in spans
+    ]
+    return {"start": min(span["_started"] for span in timed), "spans": timed}
 
 
-def direct_turn(index: int) -> dict[str, object]:
-    return {
-        "conversation_id": "conversation",
-        "started_at": f"2026-08-20T12:{index:02d}:00+00:00",
-        "content": f"Visible user turn {index}",
-        "captured_content_length": 20,
-        "model_requests": 2,
-        "tool_calls": index % 3,
-        "input_tokens": 1_000 + index,
-        "cache_read_tokens": 500,
-        "output_tokens": 100 + index,
-        "reasoning_tokens": 10 + index,
-        "ai_credits": 1.0 + index / 10,
-        "ai_cost_usd": 0.01 + index / 1_000,
-        "models": {"model": 2},
-        "usage_source": "copilot_turn_log",
-    }
+def prompt_chat(trace: str, span: str, offset_ms: int, **usage: object) -> dict[str, object]:
+    return chat_span(
+        trace_id=trace, span_id=span, conversation="conversation",
+        start_ns=BASE_NANOS + offset_ms * 1_000_000, **usage,
+    )
 
 
 def phases(
@@ -160,255 +147,131 @@ class PromptIntegrityTests(unittest.TestCase):
 
         self.assertEqual(without_prompts["metrics"], with_noise["metrics"])
 
-    def test_direct_turn_reader_is_bounded_to_the_resource_session(self) -> None:
-        with tempfile.TemporaryDirectory() as temporary_directory:
-            path = Path(temporary_directory) / "main.jsonl"
-            events = []
-            for timestamp, content, output_tokens in (
-                (1_000, "Before", 10),
-                (2_000, "Inside", 20),
-                (3_000, "After", 30),
-            ):
-                events.extend((
-                    {"ts": timestamp, "type": "user_message", "attrs": {"content": content}},
-                    {"ts": timestamp + 1, "type": "llm_request", "attrs": {
-                        "model": "model", "inputTokens": 100, "cachedTokens": 50,
-                        "outputTokens": output_tokens, "copilotUsageNanoAiu": 1_000_000_000,
-                    }},
+    def test_runtime_prompt_groups_preserve_exact_signed_64_bit_counters(self) -> None:
+        group = group_prompts(trace_session(prompt_chat(
+            "exact-trace", "exact-span", 0,
+            input_tokens=str(2**53 + 1), cache_read_tokens=1,
+            output_tokens=str(2**63 - 1), reasoning_tokens=str(2**63),
+            nano_aiu=1_000_000_000,
+        )))[0]
+
+        self.assertEqual(group["input_tokens"], 2**53 + 1)
+        self.assertEqual(group["cache_read_tokens"], 1)
+        self.assertEqual(group["output_tokens"], 2**63 - 1)
+        self.assertIsNone(group["reasoning_tokens"])
+        self.assertFalse(prompt_group_counters_valid(group))
+        self.assertFalse(prompt_group_counters_valid({**group, "reasoning_tokens": -1}))
+        self.assertTrue(prompt_group_counters_valid({**group, "reasoning_tokens": 0}))
+
+    def test_runtime_prompt_groups_detect_signed_64_bit_aggregate_overflow(self) -> None:
+        group = group_prompts(trace_session(*(
+            prompt_chat("overflow-trace", f"overflow-{index}", index, input_tokens=str(2**62))
+            for index in range(2)
+        )))[0]
+
+        self.assertIsNone(group["input_tokens"])
+        self.assertEqual(group["model_requests"], 2)
+        self.assertFalse(prompt_group_counters_valid(group))
+
+    def test_runtime_nano_aiu_reading_is_lenient_but_bounded(self) -> None:
+        cases = (
+            (1_000_000_000, 1.0),
+            (1_500_000_000.0, 1.5),
+            ("2000000000", 2.0),
+            (-1, 0.0),
+            ("not-a-counter", 0.0),
+            (str(2**63), None),
+        )
+        for nano_aiu, credits in cases:
+            with self.subTest(nano_aiu=nano_aiu):
+                group = group_prompts(trace_session(
+                    prompt_chat("cost-trace", "cost-span", 0, nano_aiu=nano_aiu),
+                ))[0]
+                self.assertEqual(group["ai_credits"], credits)
+                if credits is None:
+                    self.assertIsNone(group["ai_cost_usd"])
+                    self.assertFalse(prompt_group_counters_valid(group))
+                else:
+                    self.assertEqual(group["ai_cost_usd"], credits / 100)
+                    self.assertTrue(prompt_group_counters_valid(group))
+
+    def test_runtime_traces_produce_one_complete_prompt_per_user_message(self) -> None:
+        spans = []
+        for index in range(20):
+            trace = f"message-{index}"
+            offset = index * 10_000
+            spans.append(agent_span(
+                trace_id=trace, span_id=f"{trace}-root", conversation="conversation",
+                start_ns=BASE_NANOS + offset * 1_000_000,
+                attributes=[attribute("github.copilot.nano_aiu", 9_000_000_000, "intValue")],
+            ))
+            for continuation in range(3):
+                spans.append(prompt_chat(
+                    trace, f"{trace}-chat-{continuation}", offset + 10 + continuation * 100,
+                    input_tokens=1_000 + index, cache_read_tokens=500, output_tokens=100 + index,
+                    reasoning_tokens=10, nano_aiu=1_000_000_000,
                 ))
-            path.write_text(
-                "\n".join(json.dumps(event) for event in events) + "\n",
-                encoding="utf-8",
-            )
+            spans.append(tool_span(
+                "view", trace_id=trace, span_id=f"{trace}-view", parent_span_id=f"{trace}-root",
+                start_ns=BASE_NANOS + (offset + 50) * 1_000_000,
+            ))
+            spans.append(tool_span(
+                "task", trace_id=trace, span_id=f"{trace}-task", parent_span_id=f"{trace}-root",
+                conversation="conversation", start_ns=BASE_NANOS + (offset + 60) * 1_000_000,
+            ))
+        spans.append({
+            "traceId": "message-0", "spanId": "timing", "name": "session.timing.model_resolution",
+            "startTimeUnixNano": str(BASE_NANOS), "attributes": [],
+        })
 
-            turns = read_copilot_turns(path, 1_500, 2_500)
+        groups = group_prompts(trace_session(*reversed(spans)))
 
-            self.assertEqual(len(turns), 1)
-            self.assertEqual(turns[0]["content"], "Inside")
-            self.assertEqual(turns[0]["output_tokens"], 20)
+        self.assertEqual(len(groups), 20)
+        self.assertEqual([group["ordinal"] for group in groups], list(range(1, 21)))
+        self.assertEqual(groups[0]["started_at"], "2026-08-21T12:00:00+00:00")
+        for index, group in enumerate(groups):
+            self.assertEqual(group["content"], "")
+            self.assertEqual(group["captured_content_length"], 0)
+            self.assertEqual(group["usage_source"], "otel_trace")
+            self.assertEqual(group["model_requests"], 3)
+            self.assertEqual(group["models"], {"model-a": 3})
+            self.assertEqual(group["tool_calls"], 1)
+            self.assertEqual(group["input_tokens"], 3 * (1_000 + index))
+            self.assertEqual(group["cache_read_tokens"], 1_500)
+            self.assertEqual(group["output_tokens"], 3 * (100 + index))
+            self.assertEqual(group["reasoning_tokens"], 30)
+            self.assertEqual(group["ai_credits"], 3)
+            self.assertEqual(group["ai_cost_usd"], 0.03)
+            self.assertTrue(prompt_group_counters_valid(group))
 
-    def test_direct_turn_reader_rejects_non_object_events_and_attributes(self) -> None:
-        with tempfile.TemporaryDirectory() as temporary_directory:
-            path = Path(temporary_directory) / "main.jsonl"
-            path.write_text("\n".join(json.dumps(event) for event in (
-                ["not", "an", "event"],
-                {"ts": 1_000, "type": "user_message", "attrs": []},
-                {
-                    "ts": 2_000,
-                    "type": "user_message",
-                    "attrs": {"content": "Valid prompt"},
-                },
-                {"ts": 2_001, "type": "llm_request", "attrs": "invalid"},
-            )) + "\n", encoding="utf-8")
-
-            with self.assertRaisesRegex(ValueError, "event must be an object"):
-                read_copilot_turns(path)
-
-    def test_direct_turn_reader_preserves_exact_signed_64_bit_counters(self) -> None:
-        with tempfile.TemporaryDirectory() as temporary_directory:
-            path = Path(temporary_directory) / "main.jsonl"
-            path.write_text("\n".join(json.dumps(event) for event in (
-                {"ts": 2_000, "type": "user_message", "attrs": {"content": "Exact"}},
-                {"ts": 2_001, "type": "llm_request", "attrs": {
-                    "model": "model",
-                    "inputTokens": str(2**53 + 1),
-                    "cachedTokens": 1,
-                    "outputTokens": str(2**63 - 1),
-                    "reasoningTokens": str(2**63),
-                    "copilotUsageNanoAiu": 1_000_000_000,
-                }},
-            )) + "\n", encoding="utf-8")
-
-            turn = read_copilot_turns(path)[0]
-
-            self.assertEqual(turn["input_tokens"], 2**53 + 1)
-            self.assertEqual(turn["cache_read_tokens"], 1)
-            self.assertEqual(turn["output_tokens"], 2**63 - 1)
-            self.assertIsNone(turn["reasoning_tokens"])
-            invalid_group = {
-                **turn,
-                "ordinal": 1,
-            }
-            self.assertFalse(prompt_group_counters_valid(invalid_group))
-            self.assertFalse(prompt_group_counters_valid({
-                **invalid_group,
-                "reasoning_tokens": -1,
-            }))
-
-    def test_direct_turn_reader_detects_signed_64_bit_aggregate_overflow(self) -> None:
-        with tempfile.TemporaryDirectory() as temporary_directory:
-            path = Path(temporary_directory) / "main.jsonl"
-            events = [{
-                "ts": 2_000,
-                "type": "user_message",
-                "attrs": {"content": "Overflow"},
-            }]
-            events.extend({
-                "ts": 2_001 + index,
-                "type": "llm_request",
-                "attrs": {"model": "model", "inputTokens": str(2**62)},
-            } for index in range(2))
-            path.write_text(
-                "\n".join(json.dumps(event) for event in events) + "\n",
-                encoding="utf-8",
-            )
-
-            turn = read_copilot_turns(path)[0]
-
-            self.assertIsNone(turn["input_tokens"])
-
-    def test_prompt_groups_reject_invalid_nano_aiu(self) -> None:
-        for nano_aiu in (-1, str(2**63), "not-a-counter"):
-            with self.subTest(nano_aiu=nano_aiu), tempfile.TemporaryDirectory() as temporary_directory:
-                path = Path(temporary_directory) / "main.jsonl"
-                path.write_text("\n".join(json.dumps(event) for event in (
-                    {"ts": 2_000, "type": "user_message", "attrs": {"content": "Invalid cost"}},
-                    {"ts": 2_001, "type": "llm_request", "attrs": {
-                        "model": "model",
-                        "copilotUsageNanoAiu": nano_aiu,
-                    }},
-                )) + "\n", encoding="utf-8")
-
-                turn = read_copilot_turns(path)[0]
-
-                self.assertIsNone(turn["ai_credits"])
-                self.assertIsNone(turn["ai_cost_usd"])
-                self.assertFalse(prompt_group_counters_valid({**turn, "ordinal": 1}))
-
-    def test_exact_turns_produce_100_percent_integrity_despite_noisy_otel_requests(self) -> None:
-        direct_turns = [direct_turn(index) for index in range(20)]
-        trace_session = {
-            "spans": [
-                {
-                    "_started": 1_000 + index * 10 + continuation,
-                    "traceId": f"internal-{index}-{continuation}",
-                    "name": "chat model",
-                    "attributes": [
-                        attribute(
-                            "copilot_chat.user_request",
-                            f"Internal request envelope {index}-{continuation}",
-                        ),
-                        attribute("gen_ai.conversation.id", "conversation"),
-                        attribute("gen_ai.usage.input_tokens", 10_000, "intValue"),
-                        attribute("gen_ai.usage.output_tokens", 1_000, "intValue"),
-                    ],
-                }
-                for index in range(20)
-                for continuation in range(3)
-            ],
-        }
-
-        groups = group_prompts(trace_session, direct_turns, content_enabled=False)
-
-        self.assertEqual(len(groups), len(direct_turns))
-        self.assertEqual({group["usage_source"] for group in groups}, {"copilot_turn_log"})
-        for field in (
-            "model_requests",
-            "tool_calls",
-            "input_tokens",
-            "cache_read_tokens",
-            "output_tokens",
-            "reasoning_tokens",
-            "ai_credits",
-            "ai_cost_usd",
-        ):
-            self.assertEqual(
-                sum(group[field] for group in groups),
-                sum(turn[field] for turn in direct_turns),
-                field,
-            )
-
-    def test_exact_turns_replace_only_their_conversation_and_merge_with_otel(self) -> None:
-        exact_started = datetime(2026, 8, 20, 12, 0, tzinfo=timezone.utc)
-        fallback_started = datetime(2026, 8, 20, 12, 1, tzinfo=timezone.utc)
-        trace_session = {
-            "spans": [
-                {
-                    "_started": int(exact_started.timestamp() * 1_000),
-                    "traceId": "exact-trace",
-                    "name": "chat model",
-                    "attributes": [
-                        attribute("copilot_chat.user_request", "Noisy exact duplicate"),
-                        attribute("gen_ai.conversation.id", "conversation"),
-                    ],
-                },
-                {
-                    "_started": int(fallback_started.timestamp() * 1_000),
-                    "traceId": "fallback-trace",
-                    "name": "chat model",
-                    "attributes": [
-                        attribute("copilot_chat.user_request", "Fallback prompt"),
-                        attribute("gen_ai.conversation.id", "fallback"),
-                    ],
-                },
-            ],
-        }
-
-        groups = group_prompts(
-            trace_session,
-            [direct_turn(0)],
-            content_enabled=True,
-            include_unmatched_otel=True,
+    def test_runtime_prompt_groups_read_legacy_reasoning_and_name_derived_models(self) -> None:
+        spans = (
+            {
+                "traceId": "", "spanId": "orphan", "name": "chat model-from-name",
+                "startTimeUnixNano": str(BASE_NANOS),
+                "attributes": [attribute("gen_ai.usage.reasoning_tokens", 7, "intValue")],
+            },
+            {
+                "traceId": "unnamed", "spanId": "unnamed-chat", "name": "chat ",
+                "startTimeUnixNano": str(BASE_NANOS + 1_000_000),
+                "attributes": [attribute("gen_ai.operation.name", "chat")],
+            },
+            {
+                "traceId": "unnamed", "spanId": "response-model", "name": "chat ",
+                "startTimeUnixNano": str(BASE_NANOS + 2_000_000),
+                "attributes": [
+                    attribute("gen_ai.operation.name", "chat"),
+                    attribute("gen_ai.response.model", "response-model"),
+                ],
+            },
         )
 
-        self.assertEqual(
-            [(group["content"], group["usage_source"]) for group in groups],
-            [
-                ("Visible user turn 0", "copilot_turn_log"),
-                ("Fallback prompt", "otel_trace"),
-            ],
-        )
-        self.assertEqual([group["ordinal"] for group in groups], [1, 2])
+        groups = group_prompts(trace_session(*spans))
 
-    def test_interleaved_exact_spans_do_not_contaminate_unmatched_otel_groups(self) -> None:
-        fallback_started = datetime(2026, 8, 20, 12, 0, tzinfo=timezone.utc)
-        trace_session = {
-            "spans": [
-                {
-                    "_started": int(fallback_started.timestamp() * 1_000),
-                    "traceId": "fallback-trace",
-                    "name": "chat model",
-                    "attributes": [
-                        attribute("copilot_chat.user_request", "Fallback A"),
-                        attribute("gen_ai.conversation.id", "fallback-a"),
-                        attribute("gen_ai.usage.output_tokens", 5, "intValue"),
-                    ],
-                },
-                {
-                    "_started": int(fallback_started.timestamp() * 1_000) + 100,
-                    "traceId": "fallback-b-trace",
-                    "name": "chat model",
-                    "attributes": [
-                        attribute("copilot_chat.user_request", "Fallback B"),
-                        attribute("gen_ai.conversation.id", "fallback-b"),
-                        attribute("gen_ai.usage.output_tokens", 100, "intValue"),
-                    ],
-                },
-                {
-                    "_started": int(fallback_started.timestamp() * 1_000) + 200,
-                    "traceId": "fallback-trace",
-                    "name": "chat model",
-                    "attributes": [
-                        attribute("gen_ai.conversation.id", "fallback-a"),
-                        attribute("gen_ai.usage.output_tokens", 7, "intValue"),
-                    ],
-                },
-            ],
-        }
-
-        groups = group_prompts(
-            trace_session,
-            [direct_turn(0)],
-            content_enabled=True,
-            include_unmatched_otel=True,
-        )
-
-        fallback = {
-            group["content"]: group["output_tokens"]
-            for group in groups
-            if group["usage_source"] == "otel_trace"
-        }
-        self.assertEqual(fallback, {"Fallback A": 12, "Fallback B": 100})
+        self.assertEqual(len(groups), 2)
+        self.assertEqual(groups[0]["models"], {"model-from-name": 1})
+        self.assertEqual(groups[0]["reasoning_tokens"], 7)
+        self.assertEqual(groups[1]["models"], {"unknown": 1, "response-model": 1})
 
     def test_incomplete_or_invalid_session_usage_fails_closed(self) -> None:
         base_usage = {
@@ -622,20 +485,7 @@ class PromptIntegrityTests(unittest.TestCase):
                 "aiCostUsd": 0,
                 "models": models(0, 0, 0, 0, 0, 1, 0),
             },
-            {
-                **base_usage,
-                "source": "copilot_turn_log",
-                "chatSpans": 0,
-                "inputTokens": 0,
-                "cacheReadTokens": 0,
-                "uncachedInputTokens": 0,
-                "outputTokens": 0,
-                "reasoningTokens": 0,
-                "aiCredits": 0,
-                "aiCostUsd": 0,
-                "models": [],
-                "phases": phases(active_seconds=30, engaged_seconds=30),
-            },
+            {**base_usage, "source": "copilot_turn_log"},
             {
                 **base_usage,
                 "chatSpans": 0,
@@ -789,7 +639,7 @@ class PromptIntegrityTests(unittest.TestCase):
         self.assertIsNone(by_key["tool_calls"]["current"])
         self.assertEqual(by_key["validation_coverage"]["current"], 1)
 
-    def test_direct_and_otel_sources_produce_identical_metrics(self) -> None:
+    def test_only_runtime_otel_usage_is_complete(self) -> None:
         usage = {
             "chatSpans": 4,
             "inputTokens": 400,
@@ -808,19 +658,29 @@ class PromptIntegrityTests(unittest.TestCase):
                 coding=2, validation=1, active_seconds=50, engaged_seconds=50,
             ),
         }
-        results = []
-        for source in ("otel_traces", "copilot_turn_log"):
+        results = {}
+        for source in ("otel_traces", "copilot_turn_log", None):
             session = {
-                "experiment": source,
+                "experiment": str(source),
                 "completedAt": "2026-08-20T13:00:00Z",
                 "durationSeconds": 100,
-                "usage": {"source": source, **usage},
+                "usage": {**usage, **({"source": source} if source else {})},
             }
-            results.append(build_insights([session], [], 30, now=NOW))
+            results[source] = build_insights([session], [], 30, now=NOW)
 
-        self.assertEqual(results[0]["metrics"], results[1]["metrics"])
-        self.assertEqual(results[0]["evidenceHealth"]["otelUsageSessions"], 1)
-        self.assertEqual(results[1]["evidenceHealth"]["directUsageSessions"], 1)
+        runtime = results["otel_traces"]["evidenceHealth"]
+        self.assertTrue(runtime["integrityPassed"])
+        self.assertEqual(runtime["otelUsageSessions"], 1)
+        self.assertEqual(runtime["completeSessions"], 1)
+        self.assertNotIn("directUsageSessions", runtime)
+        for source in ("copilot_turn_log", None):
+            health = results[source]["evidenceHealth"]
+            self.assertFalse(health["integrityPassed"], source)
+            self.assertTrue(health["degraded"], source)
+            self.assertEqual(health["completeSessions"], 0, source)
+            self.assertEqual(health["otelUsageSessions"], 0, source)
+            self.assertNotIn("directUsageSessions", health)
+            self.assertIsNone(results[source]["metrics"][0]["current"], source)
 
     def test_latest_five_session_median_uses_absolute_completion_time(self) -> None:
         sessions = []

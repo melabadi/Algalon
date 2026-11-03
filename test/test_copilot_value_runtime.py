@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import argparse
+from contextlib import redirect_stdout
 import io
 import json
 import os
@@ -11,7 +12,7 @@ import tempfile
 from types import SimpleNamespace
 import unittest
 from unittest.mock import Mock, call, patch
-from urllib.error import URLError
+from urllib.error import HTTPError, URLError
 import zipfile
 
 from scripts import copilot_value, docker_runtime
@@ -174,39 +175,27 @@ class DeploymentHelperTests(unittest.TestCase):
         runtime.run.return_value = subprocess.CompletedProcess([], 1, stdout="")
         self.assertFalse(copilot_value.existing_installation_running(runtime, root))
 
-    def test_compose_refreshes_workspace_mount_for_current_runtime(self) -> None:
+    def test_compose_leaves_the_installation_environment_unchanged(self) -> None:
         with tempfile.TemporaryDirectory() as temporary_directory:
             root = Path(temporary_directory) / "installation"
-            workspace_storage = Path(temporary_directory) / "workspaceStorage"
             (root / "docker").mkdir(parents=True)
-            workspace_storage.mkdir()
-            copilot_value.write_environment(
-                root / "docker" / ".env",
-                {
-                    "COMPOSE_PROJECT_NAME": "copilot-value-test",
-                    "VSCODE_WORKSPACE_STORAGE_PATH": "C:/Users/example/workspaceStorage",
-                },
+            environment_text = (
+                "COMPOSE_PROJECT_NAME=copilot-value-test\n"
+                "VSCODE_WORKSPACE_STORAGE_PATH=/mnt/c/Users/example/workspaceStorage\n"
             )
+            (root / "docker" / ".env").write_text(environment_text, encoding="utf-8")
             runtime = Mock()
-            runtime.docker_path.side_effect = lambda path: (
-                "/mnt/c/Users/example/workspaceStorage"
-                if path == workspace_storage
-                else f"docker:{path.name}"
-            )
+            runtime.docker_path.side_effect = lambda path: f"docker:{path.name}"
             runtime.run.return_value = subprocess.CompletedProcess([], 0, stdout="")
 
-            with patch.object(
-                copilot_value,
-                "vscode_workspace_storage_paths",
-                return_value=[workspace_storage],
-            ):
-                copilot_value.compose(runtime, root, ("config", "--quiet"))
+            copilot_value.compose(runtime, root, ("--profile", "grafana", "down"))
 
-            environment = copilot_value.read_environment(root / "docker" / ".env")
-            self.assertEqual(environment["COMPOSE_PROJECT_NAME"], "copilot-value-test")
             self.assertEqual(
-                environment["VSCODE_WORKSPACE_STORAGE_PATH"],
-                "/mnt/c/Users/example/workspaceStorage",
+                (root / "docker" / ".env").read_text(encoding="utf-8"), environment_text
+            )
+            self.assertEqual(
+                [item.args[0] for item in runtime.docker_path.call_args_list],
+                [root / "docker" / "compose.yaml", root / "docker" / ".env"],
             )
 
 
@@ -434,6 +423,7 @@ class InstallationCommandTests(unittest.TestCase):
                 repository_root=str(repository),
                 skip_docker_check=False,
                 skip_vscode_settings=True,
+                skip_copilot_env=True,
                 no_start=False,
                 poll_seconds=5,
                 npm_registry="https://user:secret@example.com/npm/",
@@ -456,15 +446,34 @@ class InstallationCommandTests(unittest.TestCase):
             root = repository / ".copilot-value"
             (root / "config").mkdir(parents=True)
             (root / "docker").mkdir()
+            (root / "data" / "vscode-workspace-storage-empty").mkdir(parents=True)
             (root / "docker" / "compose.yaml").write_text("services: {}\n", encoding="utf-8")
             (root / "docker" / ".env").write_text(
                 "GRAFANA_ADMIN_PASSWORD=existing\n"
+                "VSCODE_WORKSPACE_STORAGE_PATH=/mnt/c/Users/example/workspaceStorage\n"
                 "NPM_REGISTRY=https://registry.example/npm/\n"
                 "PIP_INDEX_URL=https://registry.example/pypi/simple\n",
                 encoding="utf-8",
             )
+            runtime_patterns = {
+                "planning": ["ask_user", "exit_plan_mode", "todo"],
+                "research": ["view", "rg", "grep", "glob", "fetch", "search", "lsp"],
+                "coding": ["edit", "create", "apply_patch", "str_replace"],
+                "validation": ["powershell", "bash", "shell", "test", "tests", "playwright", "browser", "screenshot"],
+            }
             (root / "config" / "value-model.example.json").write_text(
-                json.dumps({"benchmark": {"acknowledgedAssumptions": False}}), encoding="utf-8"
+                json.dumps({"benchmark": {"acknowledgedAssumptions": False, "phaseToolPatterns": runtime_patterns}}),
+                encoding="utf-8",
+            )
+            local_config = {
+                "loadedHourlyRateUsd": 140,
+                "benchmark": {
+                    "acknowledgedAssumptions": True,
+                    "phaseToolPatterns": copilot_value.PREVIOUS_VSCODE_PHASE_TOOL_PATTERNS,
+                },
+            }
+            (root / "config" / "value-model.local.json").write_text(
+                json.dumps(local_config, indent=2) + "\n", encoding="utf-8"
             )
             archive_path = Path(temporary_directory) / "release.pyz"
             archive_path.write_text("archive", encoding="utf-8")
@@ -478,6 +487,7 @@ class InstallationCommandTests(unittest.TestCase):
                 no_start=False,
                 poll_seconds=5,
             )
+            output = io.StringIO()
             with (
                 patch.object(copilot_value, "execution_archive", return_value=archive_path),
                 patch.object(copilot_value, "stage_archive", return_value=staging),
@@ -485,9 +495,19 @@ class InstallationCommandTests(unittest.TestCase):
                 patch.object(copilot_value, "DockerRuntime", return_value=runtime),
                 patch.object(copilot_value, "running_services", return_value={*copilot_value.SERVICES, "grafana"}),
                 patch.object(copilot_value, "compose") as compose,
-                patch.object(copilot_value, "vscode_workspace_storage_paths", return_value=[]),
+                patch.object(copilot_value, "configure_copilot_environment", return_value="enabled") as configure,
                 patch.object(copilot_value, "start_installation", return_value=0) as start,
                 patch.object(copilot_value, "start_grafana_installation", return_value=0) as start_grafana,
+                patch.object(
+                    copilot_value,
+                    "urlopen",
+                    return_value=FakeResponse(200, {
+                        "completed": True,
+                        "backupPath": "/data/backups/vscode-legacy-20261029T190000Z",
+                        "clearedSessions": 7,
+                    }),
+                ),
+                redirect_stdout(output),
             ):
                 self.assertEqual(copilot_value.command_install(arguments), 0)
             self.assertEqual(deploy.call_count, 1)
@@ -503,8 +523,25 @@ class InstallationCommandTests(unittest.TestCase):
             self.assertTrue(os.path.samefile(start.call_args.args[0], root))
             self.assertTrue(start.call_args.kwargs["force_recreate"])
             start_grafana.assert_called_once_with(root.resolve())
+            self.assertEqual(configure.call_args.args[0].name, copilot_value.COPILOT_ENV_BACKUP_DIRECTORY)
+            self.assertTrue(os.path.samefile(configure.call_args.args[0].parent, root / "data"))
             environment = copilot_value.read_environment(root / "docker" / ".env")
             self.assertNotIn("GRAFANA_ADMIN_PASSWORD", environment)
+            self.assertNotIn("VSCODE_WORKSPACE_STORAGE_PATH", environment)
+            self.assertFalse((root / "data" / "vscode-workspace-storage-empty").exists())
+            migrated = json.loads((root / "config" / "value-model.local.json").read_text(encoding="utf-8"))
+            self.assertEqual(migrated["loadedHourlyRateUsd"], 140)
+            self.assertEqual(migrated["benchmark"]["phaseToolPatterns"], runtime_patterns)
+            self.assertEqual(len(list((root / "data" / "config-backups").glob("*.json"))), 1)
+            text = output.getvalue()
+            self.assertIn("Removed the obsolete VS Code workspaceStorage mount", text)
+            self.assertIn(copilot_value.COPILOT_ENV_NOTE, text)
+            self.assertIn(
+                "Legacy VS Code data was backed up to '/data/backups/vscode-legacy-20261029T190000Z' "
+                "inside Docker volume 'copilot-value-repository-",
+                text,
+            )
+            self.assertIn("_telemetry-data' (7 legacy session(s) cleared).", text)
             self.assertEqual(environment["NPM_REGISTRY"], "https://registry.example/npm/")
             self.assertEqual(environment["PIP_INDEX_URL"], "https://registry.example/pypi/simple")
 
@@ -513,6 +550,7 @@ class InstallationCommandTests(unittest.TestCase):
             repository_root=None,
             skip_docker_check=True,
             skip_vscode_settings=True,
+            skip_copilot_env=True,
             no_start=True,
             poll_seconds=5,
         )
@@ -567,9 +605,12 @@ class InstallationCommandTests(unittest.TestCase):
                 patch.object(copilot_value, "DockerRuntime", return_value=runtime),
                 patch.object(copilot_value, "compose", return_value=all_services),
                 patch.object(copilot_value, "endpoint_healthy", return_value=True),
+                patch.object(copilot_value, "report_copilot_runtime_telemetry") as report,
+                patch.object(copilot_value, "runtime_migration_backup", return_value=None),
                 patch.object(copilot_value, "otlp_ingress_healthy", return_value=True),
             ):
                 self.assertEqual(copilot_value.command_status(argparse.Namespace()), 0)
+            report.assert_called_once_with()
 
             missing_services = subprocess.CompletedProcess([], 0, stdout="worker\n")
             with (
@@ -577,6 +618,8 @@ class InstallationCommandTests(unittest.TestCase):
                 patch.object(copilot_value, "DockerRuntime", return_value=runtime),
                 patch.object(copilot_value, "compose", return_value=missing_services),
                 patch.object(copilot_value, "endpoint_healthy", return_value=False),
+                patch.object(copilot_value, "report_copilot_runtime_telemetry"),
+                patch.object(copilot_value, "runtime_migration_backup", return_value=None),
                 patch.object(copilot_value, "otlp_ingress_healthy", return_value=True),
             ):
                 self.assertEqual(copilot_value.command_status(argparse.Namespace()), 1)
@@ -593,6 +636,8 @@ class InstallationCommandTests(unittest.TestCase):
                 patch.object(copilot_value, "compose", return_value=all_services),
                 patch.object(copilot_value, "endpoint_healthy", return_value=True),
                 patch.object(copilot_value, "otlp_ingress_healthy", return_value=False),
+                patch.object(copilot_value, "report_copilot_runtime_telemetry"),
+                patch.object(copilot_value, "runtime_migration_backup", return_value=None),
             ):
                 self.assertEqual(copilot_value.command_status(argparse.Namespace()), 1)
 
@@ -639,6 +684,17 @@ class InstallationCommandTests(unittest.TestCase):
         self.assertIs(clean_data.handler, copilot_value.command_clean_data)
         self.assertTrue(clean_data.yes)
         self.assertTrue(clean_data.no_start)
+        self.assertFalse(parser.parse_args(["install"]).skip_copilot_env)
+        self.assertTrue(parser.parse_args(["install", "--skip-copilot-env"]).skip_copilot_env)
+        self.assertNotIn("--skip-copilot-env", parser.format_help())
+        self.assertIs(
+            parser.parse_args(["restore-copilot-env"]).handler,
+            copilot_value.command_restore_copilot_env,
+        )
+        self.assertIs(
+            parser.parse_args(["enable-copilot-env"]).handler,
+            copilot_value.command_enable_copilot_env,
+        )
 
         with patch.object(copilot_value, "create_parser") as create_parser:
             create_parser.return_value.parse_args.return_value = SimpleNamespace(
@@ -763,6 +819,135 @@ class InstallationCommandTests(unittest.TestCase):
             ):
                 copilot_value.start_installation(root)
             self.assertEqual(compose.call_args_list[-1].args[2], ("ps",))
+
+
+class InvalidJsonResponse(FakeResponse):
+    def read(self, *_arguments) -> bytes:
+        return b"not json"
+
+
+class CopilotRuntimeStatusTests(unittest.TestCase):
+    def write_installation(self, root: Path, home: Path) -> None:
+        (root / "docker").mkdir(parents=True)
+        (root / ".docker-install").write_text("docker\n", encoding="utf-8")
+        copilot_value.write_environment(
+            root / "docker" / ".env", {"COMPOSE_PROJECT_NAME": "copilot-value-repo-1234abcd"}
+        )
+        home.mkdir()
+
+    def status_output(self, root: Path, host, cli, response) -> tuple[int, str]:
+        output = io.StringIO()
+        all_services = subprocess.CompletedProcess([], 0, stdout="\n".join(copilot_value.SERVICES))
+        urlopen = (
+            patch.object(copilot_value, "urlopen", side_effect=response)
+            if isinstance(response, Exception)
+            else patch.object(copilot_value, "urlopen", return_value=response)
+        )
+        with (
+            patch.object(copilot_value, "install_root", return_value=root),
+            patch.object(copilot_value, "DockerRuntime", return_value=Mock()),
+            patch.object(copilot_value, "compose", return_value=all_services),
+            patch.object(copilot_value, "endpoint_healthy", return_value=True),
+            patch.object(copilot_value, "user_environment_host", return_value=host),
+            patch.object(copilot_value, "otlp_ingress_healthy", return_value=True),
+            patch.object(copilot_value, "copilot_cli_status", return_value=cli),
+            urlopen,
+            redirect_stdout(output),
+        ):
+            result = copilot_value.command_status(argparse.Namespace())
+        return result, output.getvalue()
+
+    def test_status_reports_copilot_runtime_telemetry_and_legacy_backup(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            root = Path(temporary_directory) / "installation"
+            home = Path(temporary_directory) / "home"
+            self.write_installation(root, home)
+            (home / ".bashrc").write_text(copilot_value.COPILOT_ENV_BLOCK, encoding="utf-8")
+            host = copilot_value.UserEnvironmentHost(
+                platform="linux",
+                home=home,
+                environment={"OTEL_EXPORTER_OTLP_ENDPOINT": "https://token@example.com"},
+            )
+            payload = {
+                "completed": True,
+                "backupPath": "/data/backups/vscode-legacy-20261029T190000Z",
+                "clearedSessions": 3,
+            }
+            warning = "Copilot CLI 1.0.12 is older than 1.0.64. Upgrade it."
+
+            result, text = self.status_output(
+                root, host, ("1.0.12", warning), FakeResponse(200, payload)
+            )
+
+            self.assertEqual(result, 0)
+            self.assertIn("COPILOT_OTEL_ENABLED     enabled for new shells (.bashrc)", text)
+            self.assertIn("Copilot CLI              1.0.12", text)
+            self.assertIn(f"Warning: {warning}", text)
+            self.assertIn(
+                "Warning: OTEL_EXPORTER_OTLP_ENDPOINT is set to https://example.com in "
+                "the current environment, so Copilot runtime telemetry goes there instead of Algalon.",
+                text,
+            )
+            self.assertNotIn("token", text)
+            self.assertNotIn("are not measured", text)
+            self.assertIn(
+                "Legacy VS Code data was backed up to '/data/backups/vscode-legacy-20261029T190000Z' "
+                "inside Docker volume 'copilot-value-repo-1234abcd_telemetry-data' "
+                "(3 legacy session(s) cleared).",
+                text,
+            )
+
+    def test_status_is_silent_about_migration_when_endpoint_is_unavailable(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            root = Path(temporary_directory) / "installation"
+            home = Path(temporary_directory) / "home"
+            self.write_installation(root, home)
+            host = copilot_value.UserEnvironmentHost(platform="linux", home=home, environment={})
+            responses = (
+                HTTPError(copilot_value.RUNTIME_MIGRATION_URL, 404, "Not Found", None, None),
+                URLError("connection refused"),
+                InvalidJsonResponse(200),
+                FakeResponse(204, {}),
+                FakeResponse(200, ["unexpected"]),
+                FakeResponse(200, {"completed": False, "backupPath": "/data/backups/x", "clearedSessions": 0}),
+                FakeResponse(200, {"completed": True, "backupPath": None, "clearedSessions": 0}),
+                FakeResponse(200, {"completed": True, "backupPath": "  ", "clearedSessions": 0}),
+            )
+            for response in responses:
+                with self.subTest(response=response):
+                    result, text = self.status_output(root, host, None, response)
+                    self.assertEqual(result, 0)
+                    self.assertIn("COPILOT_OTEL_ENABLED     not enabled", text)
+                    self.assertIn("Copilot CLI              not found on PATH", text)
+                    self.assertIn(
+                        "Warning: Copilot CLI and SDK sessions are not measured until "
+                        "COPILOT_OTEL_ENABLED=true. Run enable-copilot-env",
+                        text,
+                    )
+                    self.assertNotIn("Legacy VS Code data", text)
+
+    def test_migration_notice_tolerates_missing_counts_and_project_names(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            root = Path(temporary_directory)
+            output = io.StringIO()
+            for cleared in (None, True, -1, "3"):
+                payload = {"completed": True, "backupPath": "/data/backups/vscode-legacy-a"}
+                if cleared is not None:
+                    payload["clearedSessions"] = cleared
+                with (
+                    patch.object(copilot_value, "urlopen", return_value=FakeResponse(200, payload)) as urlopen,
+                    redirect_stdout(output),
+                ):
+                    copilot_value.print_runtime_migration_backup(root)
+                self.assertEqual(urlopen.call_args.args[0], copilot_value.RUNTIME_MIGRATION_URL)
+            self.assertEqual(
+                output.getvalue().splitlines(),
+                [
+                    "Legacy VS Code data was backed up to '/data/backups/vscode-legacy-a' inside "
+                    "Docker volume 'telemetry-data'."
+                ]
+                * 4,
+            )
 
 
 if __name__ == "__main__":

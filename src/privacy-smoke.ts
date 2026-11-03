@@ -7,6 +7,7 @@ const victoriaMetricsEndpoint = 'http://127.0.0.1:8428';
 const appEndpoint = 'http://127.0.0.1:3000';
 const marker = `privacy-smoke-${randomUUID()}`;
 const forbidden = `FORBIDDEN-${randomUUID()}`;
+const foreignMarker = `foreign-service-${randomUUID()}`;
 const nowNanos = (BigInt(Date.now()) * 1_000_000n).toString();
 const startNanos = (BigInt(nowNanos) - 1_000_000n).toString();
 
@@ -108,24 +109,53 @@ async function main(): Promise<void> {
       resourceSpans: [
         {
           resource: { attributes: [
-            attribute('service.name', 'copilot-chat'),
-            attribute('session.id', `privacy-${marker}`),
+            attribute('service.name', 'github-copilot'),
+            attribute('enduser.pseudo.id', forbidden),
             attribute('github.copilot.git.repository', forbidden)
           ] },
           scopeSpans: [{
-            scope: { name: 'copilot-value-privacy-smoke' },
+            scope: { name: 'github.copilot' },
             spans: [{
               traceId,
               spanId,
               name: marker,
-              kind: 'SPAN_KIND_INTERNAL',
+              kind: 'SPAN_KIND_CLIENT',
               startTimeUnixNano: startNanos,
               endTimeUnixNano: nowNanos,
               attributes: [
                 attribute('probe', marker),
+                attribute('gen_ai.operation.name', 'chat'),
+                attribute('gen_ai.conversation.id', `privacy-${marker}`),
                 attribute('gen_ai.input.messages', forbidden),
+                attribute('gen_ai.output.messages', forbidden),
                 attribute('gen_ai.system_instructions', forbidden),
+                attribute('gen_ai.tool.call.arguments', forbidden),
+                attribute('github.copilot.context.mcp_server_names', forbidden),
+                attribute('github.copilot.github.org', forbidden),
                 attribute('github.copilot.tool.parameters.command', forbidden)
+              ],
+              events: [{
+                timeUnixNano: nowNanos,
+                name: 'exception',
+                attributes: [attribute('exception.message', forbidden), attribute('exception.stacktrace', forbidden)]
+              }]
+            }]
+          }]
+        },
+        {
+          resource: { attributes: [attribute('service.name', 'other-otel-app')] },
+          scopeSpans: [{
+            scope: { name: 'other.scope' },
+            spans: [{
+              traceId: randomBytes(16).toString('hex'),
+              spanId: randomBytes(8).toString('hex'),
+              name: foreignMarker,
+              kind: 'SPAN_KIND_CLIENT',
+              startTimeUnixNano: startNanos,
+              endTimeUnixNano: nowNanos,
+              attributes: [
+                attribute('gen_ai.operation.name', 'chat'),
+                attribute('gen_ai.conversation.id', foreignMarker)
               ]
             }]
           }]
@@ -133,7 +163,7 @@ async function main(): Promise<void> {
         {
           resource: { attributes: [attribute('service.name', 'copilot-value-validation')] },
           scopeSpans: [{
-            scope: { name: 'copilot-chat' },
+            scope: { name: 'github.copilot' },
             spans: [{
               traceId: randomBytes(16).toString('hex'),
               spanId: randomBytes(8).toString('hex'),
@@ -155,6 +185,12 @@ async function main(): Promise<void> {
     }),
     post('logs', {
       resourceLogs: [{
+        resource: { attributes: [attribute('service.name', 'other-otel-app')] },
+        scopeLogs: [{
+          scope: { name: 'other.scope' },
+          logRecords: [{ timeUnixNano: nowNanos, attributes: [attribute('probe', foreignMarker)] }]
+        }]
+      }, {
         resource: { attributes: [attribute('service.name', 'copilot-value-privacy-smoke')] },
         scopeLogs: [{
           scope: { name: 'copilot-value-privacy-smoke' },
@@ -199,8 +235,16 @@ async function main(): Promise<void> {
       throw new Error(`Privacy validation failed: forbidden content reached the ${surface}.`);
     }
   }
+  await new Promise((resolve) => setTimeout(resolve, 2_000));
+  const [settledInbox, settledLogs] = await Promise.all([
+    waitForInboxMarker(),
+    readFile(path.join('data', 'otel', 'logs.json'), 'utf8')
+  ]);
+  if (settledInbox.includes(foreignMarker) || settledLogs.includes(foreignMarker)) {
+    throw new Error('Privacy validation failed: telemetry from a non-Copilot service passed the Collector filter.');
+  }
 
-  console.log('Privacy smoke passed: forbidden content was removed before SQLite, local logs, and VictoriaMetrics storage.');
+  console.log('Privacy smoke passed: only Copilot runtime telemetry was kept, and forbidden content was removed before SQLite, local logs, and VictoriaMetrics storage.');
 }
 
 main().catch((error: unknown) => {

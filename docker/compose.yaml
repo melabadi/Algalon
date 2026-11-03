@@ -72,7 +72,6 @@ services:
       COPILOT_VALUE_CONFIG: /app/config/value-model.local.json
       COPILOT_VALUE_TRACE_ARCHIVE: /data/otel/traces.json
       COPILOT_VALUE_OTEL_INBOX_URL: http://app:8000/api/internal/otel/records
-      COPILOT_VALUE_CHAT_LOG_ROOT: /vscode-workspace-storage
       COPILOT_VALUE_OUTPUT_DIR: /data/value/sessions
       COPILOT_VALUE_OTEL_URL: http://collector:4318
       COPILOT_VALUE_VICTORIA_URL: http://victoria-metrics:8428
@@ -80,7 +79,6 @@ services:
     volumes:
       - ../config/value-model.local.json:/app/config/value-model.local.json:ro
       - telemetry-data:/data
-      - ${VSCODE_WORKSPACE_STORAGE_PATH}:/vscode-workspace-storage:ro
     depends_on:
       - app
       - collector
@@ -98,7 +96,6 @@ services:
       COPILOT_VALUE_DB: /data/app/value.db
       COPILOT_VALUE_SESSION_DIR: /data/value/sessions
       COPILOT_VALUE_TRACE_ARCHIVE: /data/otel/traces.json
-      COPILOT_VALUE_CHAT_LOG_ROOT: /vscode-workspace-storage
       COPILOT_VALUE_CONFIG: /app/config/value-model.local.json
       COPILOT_VALUE_STATIC_DIR: /app/static
     ports:
@@ -106,7 +103,6 @@ services:
     volumes:
       - ../config/value-model.local.json:/app/config/value-model.local.json:ro
       - telemetry-data:/data
-      - ${VSCODE_WORKSPACE_STORAGE_PATH}:/vscode-workspace-storage:ro
     restart: unless-stopped
 
 volumes:

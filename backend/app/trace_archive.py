@@ -4,6 +4,8 @@ import json
 from pathlib import Path
 from typing import Any, Iterable
 
+from .runtime_telemetry import SESSION_KEY_ATTRIBUTE
+
 
 def attributes(items: list[dict[str, Any]] | None) -> dict[str, Any]:
     result: dict[str, Any] = {}
@@ -91,6 +93,7 @@ def collect_trace_sessions(trace_paths: Iterable[Path]) -> dict[str, dict[str, A
 def collect_trace_sessions_from_records(
     records: Iterable[dict[str, Any]],
 ) -> dict[str, dict[str, Any]]:
+    """Group inbox records by the session key that ingestion stamped on each runtime span."""
     sessions: dict[str, dict[str, Any]] = {}
     seen_spans: set[str] = set()
     for record in records:
@@ -98,13 +101,11 @@ def collect_trace_sessions_from_records(
             resource_attributes = attributes(
                 (resource_span.get("resource") or {}).get("attributes")
             )
-            if resource_attributes.get("service.name") != "copilot-chat":
-                continue
-            raw_session_id = resource_attributes.get("session.id")
-            if not raw_session_id:
+            raw_session_id = resource_attributes.get(SESSION_KEY_ATTRIBUTE)
+            if not isinstance(raw_session_id, str) or not raw_session_id:
                 continue
             session = sessions.setdefault(
-                str(raw_session_id), {"start": 2**63 - 1, "spans": []}
+                raw_session_id, {"start": 2**63 - 1, "spans": []}
             )
             for scope_span in resource_span.get("scopeSpans") or []:
                 for span in scope_span.get("spans") or []:

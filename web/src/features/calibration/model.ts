@@ -190,7 +190,7 @@ export function completeWorkerUsage(session: Session): boolean {
     'outputTokens', 'reasoningTokens'
   ] as const;
   if (
-    usage.source !== 'otel_traces' && usage.source !== 'copilot_turn_log'
+    usage.source !== 'otel_traces'
     || integerFields.some((field) => !isNonnegativeInteger(usage[field]))
     || !isNonnegativeNumber(usage.aiCredits)
     || !isNonnegativeNumber(usage.aiCostUsd)
@@ -319,7 +319,6 @@ export function completeWorkerUsage(session: Session): boolean {
     && usage.cacheReadTokens <= usage.inputTokens
     && usage.uncachedInputTokens === usage.inputTokens - usage.cacheReadTokens
     && usage.aiCostUsd === usage.aiCredits / 100
-    && (usage.source !== 'copilot_turn_log' || usage.chatSpans > 0 && usage.aiCredits > 0)
     && (usage.chatSpans !== 0 || (
       usage.inputTokens === 0 && usage.cacheReadTokens === 0
       && usage.uncachedInputTokens === 0 && usage.outputTokens === 0
@@ -327,12 +326,15 @@ export function completeWorkerUsage(session: Session): boolean {
       && phaseTotals.modelSpans === 0 && phaseTotals.uncachedInputTokens === 0
       && phaseTotals.outputTokens === 0 && phaseTotals.reasoningTokens === 0
     ))
-    && (usage.source !== 'otel_traces' || (
-      phaseTotals.modelSpans <= usage.chatSpans
-      && phaseTotals.uncachedInputTokens <= usage.uncachedInputTokens
-      && phaseTotals.outputTokens <= usage.outputTokens
-      && phaseTotals.reasoningTokens <= usage.reasoningTokens
-    ));
+    && phaseTotals.modelSpans <= usage.chatSpans
+    && phaseTotals.uncachedInputTokens <= usage.uncachedInputTokens
+    && phaseTotals.outputTokens <= usage.outputTokens
+    && phaseTotals.reasoningTokens <= usage.reasoningTokens;
+}
+
+/** Explicitly automated sessions keep observed usage, but no developer value is ever modeled for them. */
+export function isAutomatedSession(session: Session): boolean {
+  return session.sessionMode === 'automated';
 }
 
 /** Engaged time drives the model, but it can never exceed the union of session windows. */
@@ -451,6 +453,12 @@ function calibratedSessionResult(
   draft: CalibrationDraft,
   scenario: Scenario
 ): { session: Session; status: ModelingStatus } {
+  if (isAutomatedSession(session)) {
+    return {
+      status: 'unavailable',
+      session: { ...session, scenario, modelingStatus: 'unavailable', scenarioResult: null, benchmark: null }
+    };
+  }
   const { benchmark, invalid } = calibratedBenchmark(session, draft);
   const scenarioResults = benchmark?.scenarios as Record<Scenario, ScenarioResult> | undefined;
   const status: ModelingStatus = invalid ? 'invalid' : benchmark ? 'available' : 'unavailable';
@@ -486,7 +494,11 @@ export function calibratedOverview(
 ): Overview {
   const calibrated = overview.sessions.map((session) => calibratedSessionResult(session, draft, scenario));
   const sessions = calibrated.map((result) => result.session);
-  const benchmarkedSessions = sessions.filter((session) => session.scenarioResult !== null);
+  // Like the server, automated sessions stay listed but never enter modeled totals or the validity gate.
+  const modeledResults = calibrated.filter((result) => !isAutomatedSession(result.session));
+  const benchmarkedSessions = modeledResults
+    .map((result) => result.session)
+    .filter((session) => session.scenarioResult !== null);
   const totals: Overview['totals'] = {
     ...overview.totals,
     taskTimeReduction: null,
@@ -504,7 +516,7 @@ export function calibratedOverview(
   const finish = (modelingStatus: ModelingStatus): Overview => ({
     ...overview, scenario, modelingStatus, totals, sessions
   });
-  if (calibrated.some((result) => result.status === 'invalid')) {
+  if (modeledResults.some((result) => result.status === 'invalid')) {
     return finish('invalid');
   }
   const estimatedManualMinutes = checkedSum(benchmarkedSessions.map(

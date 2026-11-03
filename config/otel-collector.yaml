@@ -19,41 +19,52 @@ processors:
     check_interval: 1s
     limit_mib: 512
     spike_limit_mib: 128
+  filter/copilot-runtime:
+    error_mode: ignore
+    traces:
+      span:
+        - 'not (resource.attributes["service.name"] == "github-copilot" or instrumentation_scope.name == "github.copilot" or IsMatch(resource.attributes["service.name"], "^copilot-value-"))'
+    metrics:
+      metric:
+        - 'not (resource.attributes["service.name"] == "github-copilot" or instrumentation_scope.name == "github.copilot" or IsMatch(resource.attributes["service.name"], "^copilot-value-"))'
+    logs:
+      log_record:
+        - 'not (resource.attributes["service.name"] == "github-copilot" or instrumentation_scope.name == "github.copilot" or IsMatch(resource.attributes["service.name"], "^copilot-value-"))'
   transform/privacy:
     error_mode: propagate
     trace_statements:
       - context: resource
         statements:
-          - 'delete_matching_keys(resource.attributes, "(?i)(^|\\.)(content|reasoning_content|request\\.options|description|descriptions|prompt|prompts|messages|instructions|system_instructions|definitions|arguments|result|command|file_path|file_name|repository|branch|commit_sha|remote_url|head_branch_name|head_commit_hash|hook_input|hook_output|mcp_server_name)(\\.|$)")'
+          - 'delete_matching_keys(resource.attributes, "(?i)(^|\\.)(content|reasoning_content|request\\.options|description|descriptions|prompt|prompts|messages|instructions|system_instructions|definitions|arguments|result|command|file_path|file_name|repository|branch|commit_sha|remote_url|head_branch_name|head_commit_hash|hook_input|hook_output|mcp_server_name|mcp_server_names|enduser|org|message|stacktrace)(\\.|$)")'
       - context: scope
         statements:
-          - 'delete_matching_keys(scope.attributes, "(?i)(^|\\.)(content|reasoning_content|request\\.options|description|descriptions|prompt|prompts|messages|instructions|system_instructions|definitions|arguments|result|command|file_path|file_name|repository|branch|commit_sha|remote_url|head_branch_name|head_commit_hash|hook_input|hook_output|mcp_server_name)(\\.|$)")'
+          - 'delete_matching_keys(scope.attributes, "(?i)(^|\\.)(content|reasoning_content|request\\.options|description|descriptions|prompt|prompts|messages|instructions|system_instructions|definitions|arguments|result|command|file_path|file_name|repository|branch|commit_sha|remote_url|head_branch_name|head_commit_hash|hook_input|hook_output|mcp_server_name|mcp_server_names|enduser|org|message|stacktrace)(\\.|$)")'
       - context: span
         statements:
-          - 'delete_matching_keys(span.attributes, "(?i)(^|\\.)(content|reasoning_content|request\\.options|description|descriptions|prompt|prompts|messages|instructions|system_instructions|definitions|arguments|result|command|file_path|file_name|repository|branch|commit_sha|remote_url|head_branch_name|head_commit_hash|hook_input|hook_output|mcp_server_name)(\\.|$)")'
+          - 'delete_matching_keys(span.attributes, "(?i)(^|\\.)(content|reasoning_content|request\\.options|description|descriptions|prompt|prompts|messages|instructions|system_instructions|definitions|arguments|result|command|file_path|file_name|repository|branch|commit_sha|remote_url|head_branch_name|head_commit_hash|hook_input|hook_output|mcp_server_name|mcp_server_names|enduser|org|message|stacktrace)(\\.|$)")'
       - context: spanevent
         statements:
-          - 'delete_matching_keys(spanevent.attributes, "(?i)(^|\\.)(content|description|descriptions|prompt|prompts|messages|instructions|system_instructions|definitions|arguments|result|command|file_path|file_name|repository|branch|commit_sha|remote_url|head_branch_name|head_commit_hash|hook_input|hook_output|mcp_server_name)(\\.|$)")'
+          - 'delete_matching_keys(spanevent.attributes, "(?i)(^|\\.)(content|description|descriptions|prompt|prompts|messages|instructions|system_instructions|definitions|arguments|result|command|file_path|file_name|repository|branch|commit_sha|remote_url|head_branch_name|head_commit_hash|hook_input|hook_output|mcp_server_name|mcp_server_names|enduser|org|message|stacktrace)(\\.|$)")'
     metric_statements:
       - context: resource
         statements:
-          - 'delete_matching_keys(resource.attributes, "(?i)(^|\\.)(content|description|descriptions|prompt|prompts|messages|instructions|system_instructions|definitions|arguments|result|command|file_path|file_name|repository|branch|commit_sha|remote_url|head_branch_name|head_commit_hash|hook_input|hook_output|mcp_server_name)(\\.|$)")'
+          - 'delete_matching_keys(resource.attributes, "(?i)(^|\\.)(content|description|descriptions|prompt|prompts|messages|instructions|system_instructions|definitions|arguments|result|command|file_path|file_name|repository|branch|commit_sha|remote_url|head_branch_name|head_commit_hash|hook_input|hook_output|mcp_server_name|mcp_server_names|enduser|org|message|stacktrace)(\\.|$)")'
       - context: scope
         statements:
-          - 'delete_matching_keys(scope.attributes, "(?i)(^|\\.)(content|description|descriptions|prompt|prompts|messages|instructions|system_instructions|definitions|arguments|result|command|file_path|file_name|repository|branch|commit_sha|remote_url|head_branch_name|head_commit_hash|hook_input|hook_output|mcp_server_name)(\\.|$)")'
+          - 'delete_matching_keys(scope.attributes, "(?i)(^|\\.)(content|description|descriptions|prompt|prompts|messages|instructions|system_instructions|definitions|arguments|result|command|file_path|file_name|repository|branch|commit_sha|remote_url|head_branch_name|head_commit_hash|hook_input|hook_output|mcp_server_name|mcp_server_names|enduser|org|message|stacktrace)(\\.|$)")'
       - context: datapoint
         statements:
-          - 'delete_matching_keys(datapoint.attributes, "(?i)(^|\\.)(content|description|descriptions|prompt|prompts|messages|instructions|system_instructions|definitions|arguments|result|command|file_path|file_name|repository|branch|commit_sha|remote_url|head_branch_name|head_commit_hash|hook_input|hook_output|mcp_server_name)(\\.|$)")'
+          - 'delete_matching_keys(datapoint.attributes, "(?i)(^|\\.)(content|description|descriptions|prompt|prompts|messages|instructions|system_instructions|definitions|arguments|result|command|file_path|file_name|repository|branch|commit_sha|remote_url|head_branch_name|head_commit_hash|hook_input|hook_output|mcp_server_name|mcp_server_names|enduser|org|message|stacktrace)(\\.|$)")'
     log_statements:
       - context: resource
         statements:
-          - 'delete_matching_keys(resource.attributes, "(?i)(^|\\.)(content|description|descriptions|prompt|prompts|messages|instructions|system_instructions|definitions|arguments|result|command|file_path|file_name|repository|branch|commit_sha|remote_url|head_branch_name|head_commit_hash|hook_input|hook_output|mcp_server_name)(\\.|$)")'
+          - 'delete_matching_keys(resource.attributes, "(?i)(^|\\.)(content|description|descriptions|prompt|prompts|messages|instructions|system_instructions|definitions|arguments|result|command|file_path|file_name|repository|branch|commit_sha|remote_url|head_branch_name|head_commit_hash|hook_input|hook_output|mcp_server_name|mcp_server_names|enduser|org|message|stacktrace)(\\.|$)")'
       - context: scope
         statements:
-          - 'delete_matching_keys(scope.attributes, "(?i)(^|\\.)(content|description|descriptions|prompt|prompts|messages|instructions|system_instructions|definitions|arguments|result|command|file_path|file_name|repository|branch|commit_sha|remote_url|head_branch_name|head_commit_hash|hook_input|hook_output|mcp_server_name)(\\.|$)")'
+          - 'delete_matching_keys(scope.attributes, "(?i)(^|\\.)(content|description|descriptions|prompt|prompts|messages|instructions|system_instructions|definitions|arguments|result|command|file_path|file_name|repository|branch|commit_sha|remote_url|head_branch_name|head_commit_hash|hook_input|hook_output|mcp_server_name|mcp_server_names|enduser|org|message|stacktrace)(\\.|$)")'
       - context: log
         statements:
-          - 'delete_matching_keys(log.attributes, "(?i)(^|\\.)(content|description|descriptions|prompt|prompts|messages|instructions|system_instructions|definitions|arguments|result|command|file_path|file_name|repository|branch|commit_sha|remote_url|head_branch_name|head_commit_hash|hook_input|hook_output|mcp_server_name)(\\.|$)")'
+          - 'delete_matching_keys(log.attributes, "(?i)(^|\\.)(content|description|descriptions|prompt|prompts|messages|instructions|system_instructions|definitions|arguments|result|command|file_path|file_name|repository|branch|commit_sha|remote_url|head_branch_name|head_commit_hash|hook_input|hook_output|mcp_server_name|mcp_server_names|enduser|org|message|stacktrace)(\\.|$)")'
           - set(log.body, "")
   deltatocumulative:
     max_stale: 15m
@@ -72,7 +83,7 @@ connectors:
       - name: gen_ai.tool.name
       - name: success
     exclude_dimensions: [collector.instance.id]
-    include_instrumentation_scope: [copilot-chat]
+    include_instrumentation_scope: [github.copilot]
     aggregation_temporality: AGGREGATION_TEMPORALITY_CUMULATIVE
     metrics_flush_interval: 5s
     metrics_expiration: 30m
@@ -111,13 +122,13 @@ service:
   pipelines:
     traces:
       receivers: [otlp]
-      processors: [memory_limiter, transform/privacy]
+      processors: [memory_limiter, filter/copilot-runtime, transform/privacy]
       exporters: [otlp_http/algalon, span_metrics/copilot]
     metrics/storage:
       receivers: [otlp, span_metrics/copilot]
-      processors: [memory_limiter, transform/privacy, deltatocumulative, batch]
+      processors: [memory_limiter, filter/copilot-runtime, transform/privacy, deltatocumulative, batch]
       exporters: [otlp_http/victoriametrics]
     logs:
       receivers: [otlp]
-      processors: [memory_limiter, transform/privacy, batch]
+      processors: [memory_limiter, filter/copilot-runtime, transform/privacy, batch]
       exporters: [file/logs]
