@@ -10,7 +10,7 @@ COPY config/value-model.example.json /config/value-model.example.json
 COPY web/ ./
 RUN npm run build
 
-FROM python:3.14-slim
+FROM python:3.15-slim
 
 ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1
